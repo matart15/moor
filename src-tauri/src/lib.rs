@@ -378,6 +378,13 @@ pub fn run() {
             };
             app.manage(state);
 
+            // Built-in outbound Convex bridge (no extra daemon).
+            let connector_state = app_state.clone();
+            let connector_status = app_state.bridge_status.clone();
+            tauri::async_runtime::spawn(async move {
+                sidecar::base_connector::run(connector_state, connector_status).await;
+            });
+
             // Spawn axum server
             let host = host.to_string();
             let sm = server_manager.clone();
