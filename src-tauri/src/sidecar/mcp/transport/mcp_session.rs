@@ -31,6 +31,7 @@ impl McpSessionStore {
     }
 
     /// Creates a session; `None` means the store is at capacity.
+    #[allow(dead_code)] // Legacy unscoped session API.
     pub async fn create(&self) -> Option<String> {
         self.create_for_profile(None).await
     }
@@ -55,6 +56,7 @@ impl McpSessionStore {
 
     /// Returns true (refreshing liveness) when the session exists and has been
     /// idle for less than `ttl`; expired entries are dropped on sight.
+    #[allow(dead_code)] // Legacy unscoped session API.
     pub async fn validate_and_touch(&self, session_id: &str, ttl: Duration) -> bool {
         self.validate_for_profile(session_id, ttl, None).await
     }
@@ -83,6 +85,7 @@ impl McpSessionStore {
         }
     }
 
+    #[allow(dead_code)] // Legacy unscoped session API.
     pub async fn remove(&self, session_id: &str) -> bool {
         self.remove_for_profile(session_id, None).await
     }

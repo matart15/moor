@@ -24,6 +24,7 @@ pub struct SearchOutcome {
 ///
 /// Active Profile 只在这里读一次：检索池与审计行使用同一个归属，
 /// 调用途中切 Profile 不会把这次检索记到新 Profile 上。
+#[allow(dead_code)] // Legacy active-profile API.
 pub async fn search(
     manager: &ServerManager,
     db: &Database,

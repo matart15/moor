@@ -528,6 +528,7 @@ impl ServerManager {
         }
     }
 
+    #[allow(dead_code)] // Legacy active-profile API.
     pub async fn call_tool(
         &self,
         exposed_name: &str,
@@ -658,6 +659,7 @@ impl ServerManager {
         Ok(tools.len())
     }
 
+    #[allow(dead_code)] // Legacy active-profile API.
     pub(crate) async fn tool_exposure(&self) -> Result<ToolExposure, ToolCallError> {
         self.tool_exposure_for_profile(None).await
     }

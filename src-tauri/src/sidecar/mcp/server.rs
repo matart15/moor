@@ -14,6 +14,7 @@ pub const CALL_TOOL_NAME: &str = "moor_call_tool";
 /// Handle an incoming MCP JSON-RPC request and produce a response.
 /// This implements the MCP Gateway: aggregates tools from all running servers
 /// and routes tool calls to the correct server.
+#[allow(dead_code)] // Legacy unscoped MCP entrypoint, retained for compatibility.
 pub async fn handle_request(
     id: jsonrpc::Id,
     method: &str,
@@ -364,6 +365,7 @@ process.stdin.on("data", (chunk) => {
             .expect("failed to start fake server");
 
         let state = Arc::new(AppState {
+            bridge_status: Arc::new(tokio::sync::RwLock::new("Not configured".into())),
             db: db.clone(),
             api_token: "test-token".to_string(),
             version: "test".to_string(),
