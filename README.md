@@ -1,3 +1,11 @@
+> **Specdest fork changes (review when merging upstream):**
+>
+> 1. **Per-agent profiles:** Independent authenticated MCP endpoints, tool permissions, and profile tokens.
+> 2. **Automated management:** Local owner-only API token access for the Controller CLI, plus a separate Moor Dev app.
+>    Remove either customization if upstream provides equivalent functionality.
+
+---
+
 <p align="center">
   <img src="src-tauri/icons/128x128.png" alt="Moor" width="128">
 </p>
