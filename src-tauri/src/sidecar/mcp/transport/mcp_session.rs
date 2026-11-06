@@ -11,6 +11,7 @@ const MAX_SESSIONS: usize = 128;
 
 /// 一个 MCP 会话：空闲时间 + 只属于它的目录变更通知通道。
 struct SessionEntry {
+    profile_id: Option<String>,
     last_active: Instant,
     notify: broadcast::Sender<()>,
 }
@@ -31,6 +32,10 @@ impl McpSessionStore {
 
     /// Creates a session; `None` means the store is at capacity.
     pub async fn create(&self) -> Option<String> {
+        self.create_for_profile(None).await
+    }
+
+    pub async fn create_for_profile(&self, profile_id: Option<&str>) -> Option<String> {
         let mut sessions = self.sessions.write().await;
         if sessions.len() >= MAX_SESSIONS {
             return None;
@@ -40,6 +45,7 @@ impl McpSessionStore {
         sessions.insert(
             id.clone(),
             SessionEntry {
+                profile_id: profile_id.map(str::to_owned),
                 last_active: Instant::now(),
                 notify,
             },
@@ -50,12 +56,25 @@ impl McpSessionStore {
     /// Returns true (refreshing liveness) when the session exists and has been
     /// idle for less than `ttl`; expired entries are dropped on sight.
     pub async fn validate_and_touch(&self, session_id: &str, ttl: Duration) -> bool {
+        self.validate_for_profile(session_id, ttl, None).await
+    }
+
+    pub async fn validate_for_profile(
+        &self,
+        session_id: &str,
+        ttl: Duration,
+        profile_id: Option<&str>,
+    ) -> bool {
         let mut sessions = self.sessions.write().await;
         match sessions.get_mut(session_id) {
-            Some(entry) if entry.last_active.elapsed() <= ttl => {
+            Some(entry)
+                if entry.last_active.elapsed() <= ttl
+                    && entry.profile_id.as_deref() == profile_id =>
+            {
                 entry.last_active = Instant::now();
                 true
             }
+            Some(entry) if entry.profile_id.as_deref() != profile_id => false,
             Some(_) => {
                 sessions.remove(session_id);
                 false
@@ -65,7 +84,19 @@ impl McpSessionStore {
     }
 
     pub async fn remove(&self, session_id: &str) -> bool {
-        self.sessions.write().await.remove(session_id).is_some()
+        self.remove_for_profile(session_id, None).await
+    }
+
+    pub async fn remove_for_profile(&self, session_id: &str, profile_id: Option<&str>) -> bool {
+        let mut sessions = self.sessions.write().await;
+        if sessions
+            .get(session_id)
+            .is_some_and(|entry| entry.profile_id.as_deref() == profile_id)
+        {
+            sessions.remove(session_id).is_some()
+        } else {
+            false
+        }
     }
 
     /// Drops sessions idle beyond `ttl`; returns how many were removed.

@@ -16,7 +16,6 @@ use tauri::{
 mod login_autostart;
 mod sidecar;
 
-const LEGACY_BUNDLE_IDENTIFIER: &str = "dev.moor.app";
 const AUTOSTART_ARG: &str = "--moor-autostart";
 
 #[derive(Clone, Debug, Serialize)]
@@ -38,6 +37,29 @@ fn should_start_auto_start_servers_on_launch(
     settings: &sidecar::services::settings::Settings,
 ) -> bool {
     settings.general.auto_start_servers_on_launch
+}
+
+#[cfg(unix)]
+fn write_management_token(data_dir: &std::path::Path, token: &str) -> Result<(), String> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let target = data_dir.join("management-token");
+    let temporary = data_dir.join(format!("management-token.{}", std::process::id()));
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&temporary)
+        .map_err(|error| error.to_string())?;
+    file.write_all(token.as_bytes())
+        .map_err(|error| error.to_string())?;
+    std::fs::rename(&temporary, &target).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn write_management_token(_data_dir: &std::path::Path, _token: &str) -> Result<(), String> {
+    Ok(())
 }
 
 fn generate_api_token() -> Result<String, String> {
@@ -249,34 +271,6 @@ fn find_available_port(host: &str, start: u16, max: u16) -> Result<u16, String> 
     Err(format!("No available port in range {start}-{max}"))
 }
 
-fn migrate_legacy_data_dir(data_dir: &PathBuf, legacy_data_dir: Option<&PathBuf>) {
-    let Some(legacy) = legacy_data_dir else {
-        return;
-    };
-    if data_dir == legacy {
-        return;
-    };
-    let _ = fs::create_dir_all(data_dir);
-
-    let current_settings = data_dir.join("settings.json");
-    let legacy_settings = legacy.join("settings.json");
-    if !current_settings.exists() && legacy_settings.exists() {
-        let _ = fs::copy(&legacy_settings, current_settings);
-    }
-
-    let current_db = data_dir.join("moor.db");
-    let legacy_db = legacy.join("moor.db");
-    if current_db.exists() || !legacy_db.exists() {
-        return;
-    };
-    for name in &["moor.db", "moor.db-wal", "moor.db-shm"] {
-        let src = legacy.join(name);
-        if src.exists() {
-            let _ = fs::copy(&src, data_dir.join(name));
-        }
-    }
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -303,15 +297,7 @@ pub fn run() {
                 .path()
                 .app_data_dir()
                 .unwrap_or_else(|_| PathBuf::from(".moor"));
-            let legacy_data_dir = app
-                .path()
-                .data_dir()
-                .ok()
-                .map(|dir| dir.join(LEGACY_BUNDLE_IDENTIFIER));
-
-            // Legacy data migration
-            migrate_legacy_data_dir(&data_dir, legacy_data_dir.as_ref());
-
+            // Development data remains isolated by the distinct bundle identifier.
             // Init database
             fs::create_dir_all(&data_dir).map_err(|e| e.to_string())?;
             let db_path = data_dir.join("moor.db");
@@ -345,6 +331,8 @@ pub fn run() {
 
             // Find available port
             let api_token = generate_api_token()?;
+            // Host-side management commands read this owner-only file; never log its contents.
+            write_management_token(&data_dir, &api_token)?;
             let max_port = configured_port.saturating_add(10);
             let host = if settings.advanced.allow_lan_mcp_access {
                 "0.0.0.0"

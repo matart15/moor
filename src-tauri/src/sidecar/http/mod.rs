@@ -84,12 +84,19 @@ impl AppState {
 }
 
 pub fn create_app(state: Arc<AppState>) -> Router {
-    let mcp_routes = Router::new().route(
-        "/mcp",
-        axum::routing::any(
-            crate::sidecar::mcp::transport::streamable_http_server::handle_mcp_request,
-        ),
-    );
+    let mcp_routes = Router::new()
+        .route(
+            "/mcp",
+            axum::routing::any(
+                crate::sidecar::mcp::transport::streamable_http_server::handle_mcp_request,
+            ),
+        )
+        .route(
+            "/mcp/profiles/{id}",
+            axum::routing::any(
+                crate::sidecar::mcp::transport::streamable_http_server::handle_mcp_request,
+            ),
+        );
 
     Router::new()
         .merge(routes::health::router())

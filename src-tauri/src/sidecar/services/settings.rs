@@ -83,7 +83,7 @@ pub fn default_settings() -> Settings {
         advanced: AdvancedSettings {
             log_retention_days: 30,
             enable_audit_logging: true,
-            sidecar_port: 9223,
+            sidecar_port: 9323,
             allow_lan_mcp_access: false,
             mcp_request_timeout_ms: MCP_TIMEOUT_MS_DEFAULT,
             mcp_server_start_timeout_ms: MCP_TIMEOUT_MS_DEFAULT,

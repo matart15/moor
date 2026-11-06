@@ -69,7 +69,10 @@ impl LoadedProfileTools {
     }
 }
 
-fn load_profile_tools(db: &Database) -> Result<LoadedProfileTools, String> {
+fn load_profile_tools(
+    db: &Database,
+    profile_id: Option<&str>,
+) -> Result<LoadedProfileTools, String> {
     let rows = db.query_all(
         "SELECT p.id AS profile_id, p.exposure_mode, p.risk_policy,
                 ps.server_id, ps.enabled, ms.name AS server_name, ps.disabled_tools, ps.pinned_tools,
@@ -78,9 +81,9 @@ fn load_profile_tools(db: &Database) -> Result<LoadedProfileTools, String> {
          LEFT JOIN profile_servers ps ON ps.profile_id = p.id
          LEFT JOIN mcp_servers ms ON ms.id = ps.server_id
          LEFT JOIN tool_discoveries td ON td.server_id = ms.id
-         WHERE p.is_active = 1
+         WHERE (?1 IS NULL AND p.is_active = 1) OR p.id = ?1
          ORDER BY ms.name ASC, td.tool_name ASC",
-        &[],
+        &[&profile_id],
         |row| {
             let tool = if row.get::<_, Option<String>>("tool_name")?.is_some() {
                 Some(map_profile_tool(row)?)
@@ -109,7 +112,18 @@ fn load_profile_tools(db: &Database) -> Result<LoadedProfileTools, String> {
 
 impl ToolCatalogService {
     pub(crate) fn load_active_profile(db: &Database) -> Result<LoadedProfileTools, String> {
-        load_profile_tools(db)
+        load_profile_tools(db, None)
+    }
+
+    pub(crate) fn load_named_profile(
+        db: &Database,
+        profile_id: &str,
+    ) -> Result<LoadedProfileTools, String> {
+        let profile = ProfileRepository::new(db).find_by_id(profile_id)?;
+        if profile.is_none() {
+            return Err("Profile not found".into());
+        }
+        load_profile_tools(db, Some(profile_id))
     }
 
     pub fn get_tool_details(

@@ -86,7 +86,7 @@ pub async fn auth_middleware(
         }
         response.headers_mut().insert(
             header::ACCESS_CONTROL_ALLOW_HEADERS,
-            "Content-Type, X-Moor-Token, Mcp-Session-Id, Mcp-Protocol-Version, Mcp-Method, Mcp-Name"
+            "Content-Type, Authorization, X-Moor-Token, Mcp-Session-Id, Mcp-Protocol-Version, Mcp-Method, Mcp-Name"
                 .parse()
                 .unwrap(),
         );

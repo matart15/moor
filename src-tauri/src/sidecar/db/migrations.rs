@@ -70,6 +70,11 @@ pub fn run_migrations(db: &Database) -> Result<(), String> {
         CREATE INDEX IF NOT EXISTS idx_tool_discoveries_server_id ON tool_discoveries(server_id);
         CREATE INDEX IF NOT EXISTS idx_tool_discoveries_exposed_name ON tool_discoveries(exposed_name);
 
+        CREATE TABLE IF NOT EXISTS profile_access_tokens (
+            profile_id TEXT PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
+            token_hash TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL,

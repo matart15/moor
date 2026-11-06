@@ -75,7 +75,7 @@ mod tests {
         let Json(value) = get_settings(State(test_state(data_dir.clone())))
             .await
             .expect("settings should load");
-        assert_eq!(value["advanced"]["sidecarPort"], 9223);
+        assert_eq!(value["advanced"]["sidecarPort"], 9323);
         assert_eq!(value["general"]["minimizeToTrayOnClose"], true);
         let _ = std::fs::remove_dir_all(data_dir);
     }
@@ -99,7 +99,7 @@ mod tests {
         let Json(value) = reset_settings(State(state.clone()))
             .await
             .expect("settings reset should succeed");
-        assert_eq!(value["advanced"]["sidecarPort"], 9223);
+        assert_eq!(value["advanced"]["sidecarPort"], 9323);
         assert_eq!(
             settings_store::get_settings(&state.db)
                 .expect("settings should load")

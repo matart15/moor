@@ -1,8 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-config-schema/schema.json",
-  "productName": "Moor",
+  "productName": "Moor Dev",
   "version": "0.9.2",
-  "identifier": "com.snowautumn.moor",
+  "identifier": "com.specdest.moor-dev",
   "build": {
     "beforeDevCommand": "pnpm version:sync && pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Moor - MCP Manager",
+        "title": "Moor Dev - MCP Manager",
         "width": 1200,
         "height": 800,
         "resizable": true,

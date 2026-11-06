@@ -19,6 +19,7 @@ pub fn router() -> Router<Arc<AppState>> {
             get(get_one).put(update).delete(remove),
         )
         .route("/api/profiles/{id}/activate", put(activate))
+        .route("/api/profiles/{id}/access-token", post(rotate_access_token))
         .route(
             "/api/profiles/{profileId}/servers/{serverId}",
             get(get_profile_server).put(upsert_profile_server),
@@ -26,6 +27,16 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/profiles/{id}/clone", post(clone))
         .route("/api/profiles/{id}/tools", get(profile_tools))
         .route("/api/profiles/{id}/servers-state", put(bulk_upsert_servers))
+}
+
+// Returns a new secret once. The old token stops working immediately.
+async fn rotate_access_token(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    let token = crate::sidecar::services::profile_access::rotate(&state.db, &id)
+        .map_err(AppError::internal)?;
+    Ok(Json(json!({ "token": token })))
 }
 
 async fn list(State(state): State<Arc<AppState>>) -> Result<Json<Value>, AppError> {

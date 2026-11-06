@@ -21,10 +21,21 @@ pub async fn handle_request(
     state: Arc<AppState>,
     agent_info: Option<&str>,
 ) -> serde_json::Value {
+    handle_request_for_profile(id, method, params, state, agent_info, None).await
+}
+
+pub async fn handle_request_for_profile(
+    id: jsonrpc::Id,
+    method: &str,
+    params: Option<serde_json::Value>,
+    state: Arc<AppState>,
+    agent_info: Option<&str>,
+    profile_id: Option<&str>,
+) -> serde_json::Value {
     match method {
         "initialize" => handle_initialize(id),
-        "tools/list" => handle_tools_list(id, state).await,
-        "tools/call" => handle_tools_call(id, params, state, agent_info).await,
+        "tools/list" => handle_tools_list(id, state, profile_id).await,
+        "tools/call" => handle_tools_call(id, params, state, agent_info, profile_id).await,
         "ping" => jsonrpc::make_response(id, serde_json::json!({})),
         _ => jsonrpc::make_error(
             id,
@@ -45,8 +56,16 @@ fn handle_initialize(id: jsonrpc::Id) -> serde_json::Value {
     )
 }
 
-async fn handle_tools_list(id: jsonrpc::Id, state: Arc<AppState>) -> serde_json::Value {
-    let exposure = match state.server_manager.tool_exposure().await {
+async fn handle_tools_list(
+    id: jsonrpc::Id,
+    state: Arc<AppState>,
+    profile_id: Option<&str>,
+) -> serde_json::Value {
+    let exposure = match state
+        .server_manager
+        .tool_exposure_for_profile(profile_id)
+        .await
+    {
         Ok(exposure) => exposure,
         Err(error) => return jsonrpc::make_error(id, jsonrpc::INTERNAL_ERROR, &error.to_string()),
     };
@@ -109,6 +128,7 @@ async fn handle_tools_call(
     params: Option<serde_json::Value>,
     state: Arc<AppState>,
     agent_info: Option<&str>,
+    profile_id: Option<&str>,
 ) -> serde_json::Value {
     let params = match params {
         Some(p) => p,
@@ -124,11 +144,12 @@ async fn handle_tools_call(
         .unwrap_or_else(|| json!({}));
 
     if tool_name == SEARCH_TOOL_NAME {
-        let outcome = match crate::sidecar::services::tool_search::search(
+        let outcome = match crate::sidecar::services::tool_search::search_for_profile(
             &state.server_manager,
             &state.db,
             &arguments,
             agent_info,
+            profile_id,
         )
         .await
         {
@@ -164,6 +185,7 @@ async fn handle_tools_call(
             inner_arguments,
             agent_info,
             ToolCallVia::Meta,
+            profile_id,
         )
         .await;
     }
@@ -175,6 +197,7 @@ async fn handle_tools_call(
         arguments,
         agent_info,
         ToolCallVia::Direct,
+        profile_id,
     )
     .await
 }
@@ -186,10 +209,11 @@ async fn call_and_map(
     arguments: Value,
     agent_info: Option<&str>,
     via: ToolCallVia,
+    profile_id: Option<&str>,
 ) -> Value {
     match state
         .server_manager
-        .call_tool(tool_name, arguments, agent_info, via)
+        .call_tool_for_profile(tool_name, arguments, agent_info, via, profile_id)
         .await
     {
         Ok(result) => jsonrpc::make_response(id, result),

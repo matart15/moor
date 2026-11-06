@@ -30,8 +30,18 @@ pub async fn search(
     params: &Value,
     agent_info: Option<&str>,
 ) -> Result<SearchOutcome, ToolCallError> {
+    search_for_profile(manager, db, params, agent_info, None).await
+}
+
+pub async fn search_for_profile(
+    manager: &ServerManager,
+    db: &Database,
+    params: &Value,
+    agent_info: Option<&str>,
+    selected_profile: Option<&str>,
+) -> Result<SearchOutcome, ToolCallError> {
     let started = std::time::Instant::now();
-    let exposure = manager.tool_exposure().await;
+    let exposure = manager.tool_exposure_for_profile(selected_profile).await;
     let profile_id = exposure
         .as_ref()
         .ok()

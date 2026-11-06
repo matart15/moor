@@ -535,7 +535,19 @@ impl ServerManager {
         agent_info: Option<&str>,
         via: ToolCallVia,
     ) -> Result<Value, ToolCallError> {
-        let (exposure, read_error) = match self.tool_exposure().await {
+        self.call_tool_for_profile(exposed_name, args, agent_info, via, None)
+            .await
+    }
+
+    pub async fn call_tool_for_profile(
+        &self,
+        exposed_name: &str,
+        args: Value,
+        agent_info: Option<&str>,
+        via: ToolCallVia,
+        profile_id: Option<&str>,
+    ) -> Result<Value, ToolCallError> {
+        let (exposure, read_error) = match self.tool_exposure_for_profile(profile_id).await {
             Ok(exposure) => (Some(exposure), None),
             Err(error) => (None, Some(error)),
         };
@@ -647,7 +659,18 @@ impl ServerManager {
     }
 
     pub(crate) async fn tool_exposure(&self) -> Result<ToolExposure, ToolCallError> {
-        let loaded = ToolCatalogService::load_active_profile(&self.db).map_err(|error| {
+        self.tool_exposure_for_profile(None).await
+    }
+
+    pub(crate) async fn tool_exposure_for_profile(
+        &self,
+        profile_id: Option<&str>,
+    ) -> Result<ToolExposure, ToolCallError> {
+        let loaded = match profile_id {
+            Some(id) => ToolCatalogService::load_named_profile(&self.db, id),
+            None => ToolCatalogService::load_active_profile(&self.db),
+        }
+        .map_err(|error| {
             tracing::error!(error = %error, "Failed to read tool exposure");
             ToolCallError::Execution("Unable to read tool exposure".into())
         })?;

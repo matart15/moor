@@ -26,15 +26,45 @@ pub async fn handle_mcp_request(
     State(state): State<Arc<AppState>>,
     req: axum::extract::Request,
 ) -> Response {
+    let path = req.uri().path().to_owned();
+    let profile_id = if path == "/mcp" {
+        None
+    } else if let Some(id) = path.strip_prefix("/mcp/profiles/") {
+        if id.is_empty()
+            || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+            || crate::sidecar::db::profile_repo::ProfileRepository::new(&state.db)
+                .find_by_id(id)
+                .ok()
+                .flatten()
+                .is_none()
+        {
+            return StatusCode::NOT_FOUND.into_response();
+        }
+        let bearer = req
+            .headers()
+            .get(header::AUTHORIZATION)
+            .and_then(|header| header.to_str().ok())
+            .and_then(|header| header.strip_prefix("Bearer "));
+        if !crate::sidecar::services::profile_access::authorize(&state.db, id, bearer) {
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
+        Some(id)
+    } else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
     match *req.method() {
-        Method::GET => handle_mcp_get(state, req.headers()).await,
-        Method::DELETE => handle_mcp_delete(state, req.headers()).await,
-        Method::POST => handle_mcp_post(state, req).await,
+        Method::GET => handle_mcp_get(state, req.headers(), profile_id).await,
+        Method::DELETE => handle_mcp_delete(state, req.headers(), profile_id).await,
+        Method::POST => handle_mcp_post(state, req, profile_id).await,
         _ => StatusCode::METHOD_NOT_ALLOWED.into_response(),
     }
 }
 
-async fn handle_mcp_get(state: Arc<AppState>, headers: &HeaderMap) -> Response {
+async fn handle_mcp_get(
+    state: Arc<AppState>,
+    headers: &HeaderMap,
+    profile_id: Option<&str>,
+) -> Response {
     let accept = headers
         .get(header::ACCEPT)
         .and_then(|v| v.to_str().ok())
@@ -83,7 +113,7 @@ async fn handle_mcp_get(state: Arc<AppState>, headers: &HeaderMap) -> Response {
 
     if !state
         .mcp_sessions
-        .validate_and_touch(session_id, session_idle_ttl(&state).await)
+        .validate_for_profile(session_id, session_idle_ttl(&state).await, profile_id)
         .await
     {
         return (
@@ -184,7 +214,11 @@ fn tools_changed_event() -> Event {
     )
 }
 
-async fn handle_mcp_delete(state: Arc<AppState>, headers: &HeaderMap) -> Response {
+async fn handle_mcp_delete(
+    state: Arc<AppState>,
+    headers: &HeaderMap,
+    profile_id: Option<&str>,
+) -> Response {
     let Some(session_id) = headers
         .get(MCP_SESSION_ID_HEADER)
         .and_then(|v| v.to_str().ok())
@@ -192,14 +226,22 @@ async fn handle_mcp_delete(state: Arc<AppState>, headers: &HeaderMap) -> Respons
         return StatusCode::BAD_REQUEST.into_response();
     };
 
-    if state.mcp_sessions.remove(session_id).await {
+    if state
+        .mcp_sessions
+        .remove_for_profile(session_id, profile_id)
+        .await
+    {
         StatusCode::OK.into_response()
     } else {
         StatusCode::NOT_FOUND.into_response()
     }
 }
 
-async fn handle_mcp_post(state: Arc<AppState>, req: axum::extract::Request) -> Response {
+async fn handle_mcp_post(
+    state: Arc<AppState>,
+    req: axum::extract::Request,
+    profile_id: Option<&str>,
+) -> Response {
     let headers = req.headers().clone();
     let accept = headers
         .get(header::ACCEPT)
@@ -258,7 +300,7 @@ async fn handle_mcp_post(state: Arc<AppState>, req: axum::extract::Request) -> R
         {
             if !state
                 .mcp_sessions
-                .validate_and_touch(session_id, session_idle_ttl(&state).await)
+                .validate_for_profile(session_id, session_idle_ttl(&state).await, profile_id)
                 .await
             {
                 return StatusCode::NOT_FOUND.into_response();
@@ -289,7 +331,7 @@ async fn handle_mcp_post(state: Arc<AppState>, req: axum::extract::Request) -> R
 
     let (id, method, params) = parsed;
     let new_session_id = if method == "initialize" {
-        match state.mcp_sessions.create().await {
+        match state.mcp_sessions.create_for_profile(profile_id).await {
             Some(id) => Some(id),
             None => {
                 return (
@@ -309,12 +351,13 @@ async fn handle_mcp_post(state: Arc<AppState>, req: axum::extract::Request) -> R
         None
     };
 
-    let response = crate::sidecar::mcp::server::handle_request(
+    let response = crate::sidecar::mcp::server::handle_request_for_profile(
         id,
         &method,
         params,
         state.clone(),
         agent_info.as_deref(),
+        profile_id,
     )
     .await;
 
@@ -403,6 +446,101 @@ mod tests {
 
     fn test_state(data_dir: std::path::PathBuf) -> Arc<AppState> {
         AppState::for_test(&data_dir)
+    }
+
+    #[tokio::test]
+    async fn profile_tokens_enforce_agent_isolation() {
+        use crate::sidecar::db::profile_repo::ProfileRepository;
+        use crate::sidecar::services::profile_access;
+        let dir = temp_data_dir("agent-profile-auth");
+        let state = test_state(dir.clone());
+        let profiles = ProfileRepository::new(&state.db);
+        let a = profiles.create("agent-a").unwrap();
+        let b = profiles.create("agent-b").unwrap();
+        let token_a = profile_access::rotate(&state.db, &a.id).unwrap();
+        let token_b = profile_access::rotate(&state.db, &b.id).unwrap();
+        let app = Router::new()
+            .route("/mcp/profiles/{id}", axum::routing::any(handle_mcp_request))
+            .with_state(state);
+        let path_a = format!("/mcp/profiles/{}", a.id);
+        let path_b = format!("/mcp/profiles/{}", b.id);
+        let initialize = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#;
+        let no_token = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(&path_a)
+                    .body(Body::from(initialize))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(no_token.status(), StatusCode::UNAUTHORIZED);
+        let unauthorized = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(&path_b)
+                    .header(header::AUTHORIZATION, format!("Bearer {token_a}"))
+                    .body(Body::from(initialize))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+        let initialized = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(&path_a)
+                    .header(header::AUTHORIZATION, format!("Bearer {token_a}"))
+                    .body(Body::from(initialize))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(initialized.status(), StatusCode::OK);
+        let session = initialized
+            .headers()
+            .get(MCP_SESSION_ID_HEADER)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        let mismatched = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(&path_b)
+                    .header(header::AUTHORIZATION, format!("Bearer {token_b}"))
+                    .header(MCP_SESSION_ID_HEADER, session)
+                    .body(Body::from(
+                        r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(mismatched.status(), StatusCode::NOT_FOUND);
+        let valid = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(&path_a)
+                    .header(header::AUTHORIZATION, format!("Bearer {token_a}"))
+                    .header(MCP_SESSION_ID_HEADER, session)
+                    .body(Body::from(
+                        r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(valid.status(), StatusCode::OK);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]
