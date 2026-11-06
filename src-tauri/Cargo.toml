@@ -45,6 +45,7 @@ keyring = { version = "3", features = [
 ] }
 sha2 = "0.10"
 base64 = "0.22"
+convex = "0.10"
 
 [profile.release]
 strip = true

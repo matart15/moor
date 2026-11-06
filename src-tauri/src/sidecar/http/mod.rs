@@ -22,6 +22,7 @@ pub struct AppState {
     pub mcp_sessions: Arc<McpSessionStore>,
     pub event_bus: Arc<EventBus>,
     pub server_manager: Arc<ServerManager>,
+    pub bridge_status: crate::sidecar::base_connector::BridgeStatus,
 }
 
 impl AppState {
@@ -42,6 +43,7 @@ impl AppState {
             mcp_sessions: Arc::new(McpSessionStore::new()),
             event_bus,
             server_manager,
+            bridge_status: Arc::new(tokio::sync::RwLock::new("Not configured".into())),
         }
     }
 
@@ -107,6 +109,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .merge(routes::profiles::router())
         .merge(routes::logs::router())
         .merge(routes::settings::router())
+        .merge(routes::bridge::router())
         .merge(routes::events::router())
         .merge(routes::import_routes::router())
         .merge(mcp_routes)

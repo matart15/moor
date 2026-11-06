@@ -3,7 +3,7 @@ import { UpdateCheck } from "@/components/shared/UpdateCheck";
 import { useTranslation } from "@/contexts/LocaleContext";
 import { useState, useEffect, useCallback } from "react";
 import { cn, getErrorMessage } from "@/lib/utils";
-import { getApiRuntime } from "@/lib/api/runtime";
+import { buildApiHeaders, getApiRuntime } from "@/lib/api/runtime";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
 import { useSettings } from "@/hooks/useSettings";
@@ -307,6 +307,54 @@ function AdvancedSection({
   const [localRetention, setLocalRetention] = useState(String(settings.advanced.logRetentionDays));
   const [localPort, setLocalPort] = useState(String(settings.advanced.sidecarPort));
   const [tokenVisible, setTokenVisible] = useState(false);
+  const [bridgeUrl, setBridgeUrl] = useState(settings.bridge.deploymentUrl);
+  const [bridgeSecret, setBridgeSecret] = useState("");
+  const [bridgeStatus, setBridgeStatus] = useState("Not configured");
+  const [secretConfigured, setSecretConfigured] = useState(false);
+  const [bridgeSaving, setBridgeSaving] = useState(false);
+  useEffect(() => {
+    setBridgeUrl(settings.bridge.deploymentUrl);
+  }, [settings.bridge.deploymentUrl]);
+
+  const refreshBridgeStatus = useCallback(async () => {
+    const runtime = await getApiRuntime();
+    const response = await fetch(`${runtime.baseUrl}/api/bridge`, {
+      headers: buildApiHeaders(runtime),
+    });
+    if (!response.ok) throw new Error("Could not load bridge status");
+    const result = (await response.json()) as { connection: string; secretConfigured: boolean };
+    setBridgeStatus(result.connection);
+    setSecretConfigured(result.secretConfigured);
+  }, []);
+  useEffect(() => {
+    void refreshBridgeStatus().catch(() => {});
+  }, [refreshBridgeStatus]);
+
+  const saveBridge = async () => {
+    setBridgeSaving(true);
+    onError(null);
+    try {
+      if (bridgeSecret) {
+        const runtime = await getApiRuntime();
+        const response = await fetch(`${runtime.baseUrl}/api/bridge/secret`, {
+          method: "POST",
+          headers: buildApiHeaders(runtime),
+          body: JSON.stringify({ secret: bridgeSecret }),
+        });
+        if (!response.ok) throw new Error("Unable to save connection secret");
+        setBridgeSecret("");
+      }
+      await updateSettings({
+        bridge: { deploymentUrl: bridgeUrl.trim(), enabled: settings.bridge.enabled },
+      });
+      await refreshBridgeStatus();
+    } catch (err) {
+      onError(getErrorMessage(err, "Failed to configure Base bridge"));
+    } finally {
+      setBridgeSaving(false);
+    }
+  };
+
   const portStatus = getAdvancedPortStatus({
     runtimeInfo,
     configuredPort: settings.advanced.sidecarPort,
@@ -403,6 +451,50 @@ function AdvancedSection({
 
   return (
     <div className="space-y-4">
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <p className="font-headline text-sm text-cursor-dark">Base MCP Connector</p>
+          <p className="font-body text-xs text-[var(--fg-45)]">
+            Outbound Convex realtime connection. No Mac ports are exposed.
+          </p>
+          <Input
+            aria-label="Base Convex deployment URL"
+            placeholder="https://your-deployment.convex.cloud"
+            value={bridgeUrl}
+            onChange={(e) => setBridgeUrl(e.target.value)}
+          />
+          <Input
+            aria-label="Connection Secret"
+            type="password"
+            placeholder={
+              secretConfigured
+                ? "Secret saved in macOS Keychain"
+                : "Connection secret (32+ characters)"
+            }
+            value={bridgeSecret}
+            onChange={(e) => setBridgeSecret(e.target.value)}
+          />
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs">Status: {bridgeStatus}</span>
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={settings.bridge.enabled}
+                onCheckedChange={(value) =>
+                  void updateSettings({ bridge: { enabled: value } }).catch((err) =>
+                    onError(getErrorMessage(err, "Failed to enable connector")),
+                  )
+                }
+              />
+              <Button size="sm" disabled={bridgeSaving} onClick={() => void saveBridge()}>
+                Save
+              </Button>
+            </div>
+          </div>
+          <p className="text-xs text-[var(--fg-45)]">
+            Restart Moor after changing a running connection. Secret is never displayed again.
+          </p>
+        </CardContent>
+      </Card>
       <Card>
         <CardContent className="p-2 divide-y divide-[var(--fg-06)]">
           <HealthSettings onError={onError} />

@@ -34,7 +34,13 @@ export interface AdvancedSettings {
   mcpHealthCheckIntervalSeconds: number;
 }
 
+export interface BridgeSettings {
+  enabled: boolean;
+  deploymentUrl: string;
+}
+
 export interface Settings {
+  bridge: BridgeSettings;
   version: number;
   general: GeneralSettings;
   appearance: AppearanceSettings;
@@ -47,11 +53,13 @@ export type SettingsUpdatePayload = {
   general?: Partial<GeneralSettings>;
   appearance?: Partial<AppearanceSettings>;
   advanced?: Partial<AdvancedSettings>;
+  bridge?: Partial<BridgeSettings>;
 };
 
 export function createDefaultSettings(): Settings {
   return {
     version: 1,
+    bridge: { enabled: false, deploymentUrl: "" },
     general: {
       autoStartOnLogin: false,
       autoStartServersOnLaunch: false,

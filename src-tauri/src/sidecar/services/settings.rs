@@ -60,15 +60,27 @@ pub struct AdvancedSettings {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
+    pub bridge: BridgeSettings,
     pub version: u32,
     pub general: GeneralSettings,
     pub appearance: AppearanceSettings,
     pub advanced: AdvancedSettings,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct BridgeSettings {
+    pub enabled: bool,
+    pub deployment_url: String,
+}
+
 pub fn default_settings() -> Settings {
     Settings {
         version: 1,
+        bridge: BridgeSettings {
+            enabled: false,
+            deployment_url: String::new(),
+        },
         general: GeneralSettings {
             auto_start_on_login: false,
             auto_start_servers_on_launch: false,
@@ -267,6 +279,26 @@ fn setting_at<'a>(value: &'a Value, dotted: &str) -> Option<&'a Value> {
 }
 
 fn validate_settings_value(value: &Value) -> Result<(), String> {
+    let url = setting_at(value, "bridge.deploymentUrl")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if !url.is_empty() {
+        let parsed = reqwest::Url::parse(url)
+            .map_err(|_| "bridge.deploymentUrl must be a valid URL".to_string())?;
+        let is_convex = parsed.scheme() == "https"
+            && parsed
+                .host_str()
+                .is_some_and(|host| host.ends_with(".convex.cloud"))
+            && parsed.username().is_empty()
+            && parsed.password().is_none()
+            && parsed.port().is_none()
+            && parsed.path() == "/"
+            && parsed.query().is_none()
+            && parsed.fragment().is_none();
+        if !is_convex {
+            return Err("bridge.deploymentUrl must be an HTTPS Convex cloud deployment".into());
+        }
+    }
     if !matches!(
         setting_at(value, "appearance.locale").and_then(Value::as_str),
         Some("system" | "zh-CN" | "en")
