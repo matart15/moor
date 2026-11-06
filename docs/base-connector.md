@@ -9,7 +9,7 @@ Moor Dev can now pair with Base using the existing `moor_base_mcp` OAuth authori
 1. Authorize `moor_base_mcp` with the Base account used by the agent clients (requires the `mcp:write` scope).
 2. In **Settings → Advanced → Base MCP Connector**, enter the Base production Convex cloud URL, enable **Moor-managed OAuth pairing**, enable the connector, and restart Moor. A new random per-user connector secret is stored in macOS Keychain and registered through the existing Base OAuth grant.
 3. Each agent signs into Base through existing OAuth. The agent identity is forwarded to Moor; newly observed clients appear in connector settings. Assign the desired Moor profile there. Unassigned clients fail closed.
-4. Agent/profile/server assignments are changed only in Moor. Pairing renews every 30 minutes; Base connector authorization expires after 90 minutes without an OAuth renewal.
+4. Agent/profile/server assignments are changed only in Moor. Pairing renews every 30 minutes; Moor sends a heartbeat every 30 seconds, and Base stops forwarding remote tools after 90 seconds without one. The OAuth pairing lease expires after 90 minutes without renewal.
 
 For large tool catalogs (for example Notion plus Sentry), use the profile’s **Curated listing** mode if `tools/list` exceeds Convex’s 180 KB response limit. Curated mode provides discovery and delegated tool invocation without transferring every schema at once.
 
@@ -34,7 +34,7 @@ Base must independently authorize each user + OAuth client to the correct profil
 3. **Diagnostics:** Authenticated `GET /api/bridge` returns `connection`, `lastConnectedAtMs`, `lastMessageAtMs`, `lastError` (sanitized category), `consecutiveFailures`, `retryAfterSeconds`, and `secretConfigured`. Settings → Advanced refreshes this status every 10 seconds while open, showing the last successful connection and any recurring failures. Repeated `Connection secret rejected by Convex` means the Keychain secret differs from the target deployment; it should be corrected, never logged.
 4. **MCP server failure:** Enable **Automatic Health Checks** in Settings → Advanced to detect unhealthy running servers. These checks warn after three failures; server restart is still manual to avoid unintentionally resetting active tool calls. OAuth refresh must be verified separately.
 5. **Request timeout / uncertain writes:** Base expires pending requests after 25 seconds. Once claimed, a tool may have executed even if its response was lost. Check state before attempting a write again; do **not** automatically replay it.
-6. **Mac powered off or application intentionally quit:** No local task can execute and this local-only app cannot issue an out-of-band alert. A separate cloud-side heartbeat and alert destination would be needed for notification when Moor itself is offline. This is **not yet implemented**.
+6. **Mac powered off or application intentionally quit:** No local task can execute and this local-only app cannot issue an out-of-band alert. The OAuth-paired connector now heartbeats to Base for routing availability, but no external alert destination is configured. Offline notification is **not yet implemented**.
 
 ### Release verification
 

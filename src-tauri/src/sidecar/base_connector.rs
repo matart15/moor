@@ -251,10 +251,16 @@ pub async fn run(state: Arc<AppState>, status: BridgeStatus) {
                 .await
                 .map_err(|e| e.to_string())?;
             let renew_at = tokio::time::Instant::now() + Duration::from_secs(30 * 60);
+            let mut heartbeat = tokio::time::interval(Duration::from_secs(30));
+            heartbeat.tick().await;
             loop {
                 let result = tokio::select! {
                     next = subscription.next() => next,
                     _ = tokio::time::sleep_until(renew_at), if config.paired => return Ok::<(), String>(()),
+                    _ = heartbeat.tick(), if config.paired => {
+                        require_value(client.mutation("moorBridgePaired:heartbeat", args(&secret)).await.map_err(|e| e.to_string())?)?;
+                        continue;
+                    },
                 };
                 let Some(result) = result else { break; };
                 // A successful subscription call is not proof of authentication:
