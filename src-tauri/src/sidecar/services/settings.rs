@@ -137,6 +137,11 @@ fn settings_to_db_entries(settings: &Settings) -> Result<Vec<(String, String)>, 
 }
 
 fn flatten_to_entries(value: &Value, prefix: String, out: &mut Vec<(String, String)>) {
+    // OAuth client IDs are URLs and contain dots. Persist this map as a single JSON leaf.
+    if prefix == "bridge.agentProfiles" {
+        out.push((prefix, value.to_string()));
+        return;
+    }
     match value {
         Value::Object(map) => {
             for (key, inner) in map {
@@ -176,10 +181,22 @@ fn insert_nested_setting(root: &mut Map<String, Value>, key: &str, value: Value)
 
 fn db_entries_to_settings(entries: std::collections::HashMap<String, String>) -> Settings {
     let mut raw = Map::new();
+    let mut legacy_profiles = Map::new();
+    let mut stored_profiles = None;
     for (key, value) in entries {
         let parsed = serde_json::from_str(&value).unwrap_or(Value::String(value));
-        insert_nested_setting(&mut raw, &key, parsed);
+        if key == "bridge.agentProfiles" {
+            stored_profiles = parsed.as_object().cloned();
+        } else if let Some(client_id) = key.strip_prefix("bridge.agentProfiles.") {
+            // Recover profiles written by old builds, where URL dots were split into nested keys.
+            legacy_profiles.insert(client_id.to_string(), parsed);
+        } else {
+            insert_nested_setting(&mut raw, &key, parsed);
+        }
     }
+    // The current JSON leaf supersedes obsolete individual entries, including an empty map.
+    let profiles = stored_profiles.unwrap_or(legacy_profiles);
+    insert_nested_setting(&mut raw, "bridge.agentProfiles", Value::Object(profiles));
     merge_settings_value(default_settings(), Value::Object(raw))
         .unwrap_or_else(|_| default_settings())
 }
@@ -235,6 +252,17 @@ pub fn merge_settings_value(base: Settings, patch: Value) -> Result<Settings, St
             .expect("settings serializes to an object"),
         patch,
     );
+    // Assignments are a complete map, not a recursive patch: deleted clients must stay deleted.
+    if let Some(profiles) = patch
+        .get("bridge")
+        .and_then(|bridge| bridge.get("agentProfiles"))
+    {
+        insert_nested_setting(
+            merged.as_object_mut().expect("settings serializes to an object"),
+            "bridge.agentProfiles",
+            profiles.clone(),
+        );
+    }
     validate_settings_value(&merged)?;
     serde_json::from_value(merged).map_err(|e| format!("Invalid settings payload: {e}"))
 }
@@ -373,6 +401,60 @@ mod tests {
         let db = Database::open(&data_dir.join("moor.db")).expect("failed to open settings db");
         db.run_migrations().expect("failed to migrate settings db");
         db
+    }
+
+    #[test]
+    fn oauth_client_url_mapping_survives_save_reload_and_preserves_theme() {
+        let data_dir = temp_data_dir("oauth-profile-url");
+        let db = test_db(&data_dir);
+        let client = "user-123:https://chatgpt.com/oauth/fQbAz927r6xi/client.json";
+        let profile = "2c42a2ef-604a-489a-8eab-0329a003ebaa";
+        update_settings(&db, serde_json::json!({
+            "appearance": { "theme": "light" },
+            "bridge": { "enabled": true, "paired": true, "deploymentUrl": "https://mild-snail-669.convex.cloud" }
+        })).unwrap();
+        update_settings(&db, serde_json::json!({
+            "bridge": { "agentProfiles": { (client): profile } }
+        })).unwrap();
+        let stored = settings_repo::load_entries(&db).unwrap();
+        assert!(stored.contains_key("bridge.agentProfiles"));
+        assert!(!stored.contains_key(&format!("bridge.agentProfiles.{client}")));
+        drop(db);
+        let reopened = test_db(&data_dir);
+        let settings = get_settings(&reopened).unwrap();
+        assert_eq!(settings.appearance.theme, "light");
+        assert!(settings.bridge.paired);
+        assert_eq!(settings.bridge.agent_profiles.get(client).map(String::as_str), Some(profile));
+        update_settings(&reopened, serde_json::json!({ "bridge": { "agentProfiles": {} } })).unwrap();
+        assert!(get_settings(&reopened).unwrap().bridge.agent_profiles.is_empty());
+        drop(reopened);
+        let _ = fs::remove_dir_all(data_dir);
+    }
+
+    #[test]
+    fn recovers_and_cleans_legacy_dotted_oauth_keys_without_resetting_settings() {
+        let data_dir = temp_data_dir("legacy-oauth-profile");
+        let db = test_db(&data_dir);
+        update_settings(&db, serde_json::json!({ "appearance": { "theme": "light" } })).unwrap();
+        let client = "user-123:https://chatgpt.com/oauth/fQbAz927r6xi/client.json";
+        let profile = "2c42a2ef-604a-489a-8eab-0329a003ebaa";
+        // Simulate the old map flattening that made the entire settings object invalid.
+        settings_repo::save_entries(&db, &[(format!("bridge.agentProfiles.{client}"), serde_json::to_string(profile).unwrap())]).unwrap();
+        // Remove the new atomic map so the legacy-only recovery path is exercised.
+        db.transaction(|conn| {
+            conn.execute("DELETE FROM settings WHERE key = 'bridge.agentProfiles'", []).map_err(|e| e.to_string())?;
+            Ok(())
+        }).unwrap();
+        let restored = get_settings(&db).unwrap();
+        assert_eq!(restored.appearance.theme, "light");
+        assert_eq!(restored.bridge.agent_profiles.get(client).map(String::as_str), Some(profile));
+        update_settings(&db, serde_json::json!({ "bridge": { "enabled": true } })).unwrap();
+        let keys = settings_repo::load_entries(&db).unwrap();
+        assert!(!keys.contains_key(&format!("bridge.agentProfiles.{client}")));
+        assert!(keys.contains_key("bridge.agentProfiles"));
+        assert_eq!(get_settings(&db).unwrap().appearance.theme, "light");
+        drop(db);
+        let _ = fs::remove_dir_all(data_dir);
     }
 
     #[test]
