@@ -14,7 +14,7 @@ Base must independently authorize each user + OAuth client to the correct profil
 >
 > Controller compose declares `127.0.0.1:8788:3000` for Local Coder MCP, but it is **not activated** in the running container. After a controlled restart, register the Local Coder MCP server as `http://127.0.0.1:8788/mcp/<token>`. Keep the token secret, expose no LAN port, and preserve the existing OpenAI tunnel until live production acceptance passes.
 
-## Recovery and monitoring (Moor Dev update required)
+## Recovery and monitoring
 
 1. **Start on login / crash recovery:** In **Settings → General**, enable **Auto-start on Login** for the packaged Moor Dev app. Its existing per-user macOS LaunchAgent is amended with `KeepAlive = { SuccessfulExit = false }` and a 10-second throttle. This makes launchd restart Moor after an abnormal exit, but **does not restart it after intentional Quit**. The updated launch agent takes effect at the **next login**; do not add a duplicate supervisor or run original Moor. Auto-start servers require **Auto-start Servers on Launch** and individual server auto-start flags. OAuth consent and credential revocation still require the user.
 2. **Transient Convex outage / Wi-Fi / sleep:** The same Rust worker reconnects with capped exponential backoff (5, 10, 20, 40, then 60 seconds), resetting after the first successful subscription result. No claimed request is replayed after connection loss.
@@ -25,4 +25,4 @@ Base must independently authorize each user + OAuth client to the correct profil
 
 ### Release verification
 
-The code and tests in this repository do not update the currently installed app until a new Apple Silicon app bundle is built and installed. Test a real crash/relaunch only **after enabling login startup, logging out and in again**, then validate the bridge endpoint and a read-only tool call. Retain the existing OpenAI tunnel until the new build and production authorization are verified.
+**Verification (2026-11-07):** The recovery branch passed frontend and native macOS Rust CI tests. A new Apple Silicon Moor Dev bundle was built locally and installed at `~/Applications/Moor Dev.app`. After relaunch, Controller reported `moor_base_mcp` running with Auto-start enabled; a real read-only `project_list` call via Base development Convex → Moor Dev completed successfully. The exact running executable identity was not independently checked. **Still pending:** macOS logout/login and abnormal-exit recovery, network interruption and reconnect testing, OAuth renewal/revocation, production multi-agent profile authorization, and external offline alerting. The updated launch agent must be exercised after the next login; do not intentionally crash the app during unrelated work. Retain the existing OpenAI tunnel until production authorization is verified.
