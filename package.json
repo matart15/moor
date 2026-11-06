@@ -62,6 +62,7 @@
     "@vitejs/plugin-react": "^6",
     "tailwindcss": "^4",
     "typescript": "~5.7",
-    "vite-plus": "catalog:"
+    "vite-plus": "catalog:",
+    "nps": "^5.10.0"
   }
 }

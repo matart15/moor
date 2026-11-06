@@ -39,3 +39,21 @@ Base must independently authorize each user + OAuth client to the correct profil
 ### Release verification
 
 **Verification (2026-11-07):** The recovery branch passed frontend and native macOS Rust CI tests. A new Apple Silicon Moor Dev bundle was built locally and installed at `~/Applications/Moor Dev.app`. After relaunch, Controller reported `moor_base_mcp` running with Auto-start enabled; a real read-only `project_list` call via Base development Convex → Moor Dev completed successfully. The exact running executable identity was not independently checked. **Still pending:** macOS logout/login and abnormal-exit recovery, network interruption and reconnect testing, OAuth renewal/revocation, production multi-agent profile authorization, and external offline alerting. The updated launch agent must be exercised after the next login; do not intentionally crash the app during unrelated work. Retain the existing OpenAI tunnel until production authorization is verified.
+
+## Repeatable macOS development installation
+
+From the **trusted macOS Moor checkout**, run `nps local.installDev`. This uses
+`scripts/build-macos-dev.sh` (dependency install, Rust checks, native Tauri build)
+then `scripts/install-macos-dev.sh` (verify bundle identifier/signature where
+present, quit old Moor Dev, stage and replace `~/Applications/Moor Dev.app`,
+clear quarantine on that locally built bundle only, launch, health-check, and
+restore the old app if launch/health validation fails). It never changes
+`/Applications/Moor.app` or disables Gatekeeper system-wide. Moor Dev remains
+unsigned and is not Apple-notarized; only use the workflow with trusted source.
+
+For **Mac Local Coder (Docker)**, the same NPS command must run via the existing
+Controller host gateway, not inside Linux. A Mac administrator must first
+review and run Controller's `scripts/internal/install-moor-dev-nps-gateway-macos.sh`
+to register the Moor project and update the scoped gateway policy. The gateway
+allows only `local.installDev` for `moor-dev`, with sufficient timeout for the
+native build. This one-time host policy step is not performed by a repo pull.
