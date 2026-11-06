@@ -105,7 +105,7 @@ mod tests {
                 .expect("settings should load")
                 .advanced
                 .sidecar_port,
-            9223
+            9323
         );
         assert_eq!(
             settings_store::read_settings_file(&data_dir)
