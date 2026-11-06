@@ -15,6 +15,8 @@ pnpm install --frozen-lockfile
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo test --manifest-path src-tauri/Cargo.toml profile_tokens_enforce_agent_isolation --lib
 cargo test --manifest-path src-tauri/Cargo.toml isolated_tokens_and_rotation --lib
-pnpm tauri build --target aarch64-apple-darwin --bundles dmg
-printf '\nMoor Dev DMG artifacts:\n'
-find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -maxdepth 1 -name '*Moor*Dev*.dmg' -print
+pnpm tauri build --target aarch64-apple-darwin --bundles app
+printf '\nMoor Dev app bundle:\n'
+APP='src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Moor Dev.app'
+[[ -d "$APP" && -f "$APP/Contents/Info.plist" ]] || { echo 'Expected app bundle missing' >&2; exit 1; }
+printf '%s\n' "$ROOT/$APP"

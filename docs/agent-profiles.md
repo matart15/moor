@@ -30,5 +30,5 @@ on the public Internet.
 ## Building on Apple Silicon
 
 Run `./scripts/build-macos-dev.sh` from the fork's macOS checkout. The script
-checks Rust tests and builds an unsigned development DMG using the native
-macOS toolchain. It does not install or replace the released Moor app.
+checks Rust tests and builds a standalone development `.app` using the native
+macOS toolchain, without DMG packaging. It does not install or replace released Moor.
