@@ -59,7 +59,7 @@ jobs:
     # Build an unsigned test app only when explicitly requested, not on every push.
     if: github.event_name == 'workflow_dispatch'
     needs: [cargo-test, frontend-check]
-    runs-on: macos-15
+    runs-on: macos-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
