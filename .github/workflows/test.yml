@@ -54,3 +54,39 @@ jobs:
 
       - name: Run frontend tests
         run: pnpm exec vp test
+
+  build-moor-dev:
+    # Build an unsigned test app only when explicitly requested, not on every push.
+    if: github.event_name == 'workflow_dispatch'
+    needs: [cargo-test, frontend-check]
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - uses: pnpm/action-setup@v5
+        with:
+          run_install: false
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: aarch64-apple-darwin
+          cache-workspaces: src-tauri
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build isolated Moor Dev app
+        run: pnpm tauri build --target aarch64-apple-darwin --bundles app
+      - name: Archive macOS app (preserve symlinks and permissions)
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_dir="src-tauri/target/aarch64-apple-darwin/release/bundle/macos"
+          test -d "$app_dir/Moor Dev.app"
+          tar -czf moor-dev-macos-arm64.tar.gz -C "$app_dir" "Moor Dev.app"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: moor-dev-macos-arm64
+          path: moor-dev-macos-arm64.tar.gz
+          retention-days: 7
