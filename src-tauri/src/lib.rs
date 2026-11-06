@@ -163,6 +163,7 @@ fn apply_autostart_setting(app: &tauri::AppHandle, enabled: bool) -> Result<(), 
     let autolaunch = app.autolaunch();
     if enabled {
         autolaunch.enable().map_err(|err| err.to_string())?;
+        login_autostart::ensure_crash_recovery(app)?;
         if should_reload_login_agent {
             login_autostart::refresh_stale_login_agent(app);
         }

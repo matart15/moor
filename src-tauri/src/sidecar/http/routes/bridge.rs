@@ -18,12 +18,13 @@ pub fn router() -> Router<Arc<AppState>> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Status {
-    connection: String,
+    #[serde(flatten)]
+    health: base_connector::BridgeHealth,
     secret_configured: bool,
 }
 async fn status(State(state): State<Arc<AppState>>) -> Json<Status> {
     Json(Status {
-        connection: state.bridge_status.read().await.clone(),
+        health: state.bridge_status.read().await.clone(),
         secret_configured: base_connector::has_secret(),
     })
 }

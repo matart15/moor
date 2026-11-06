@@ -43,7 +43,9 @@ impl AppState {
             mcp_sessions: Arc::new(McpSessionStore::new()),
             event_bus,
             server_manager,
-            bridge_status: Arc::new(tokio::sync::RwLock::new("Not configured".into())),
+            bridge_status: Arc::new(tokio::sync::RwLock::new(
+                crate::sidecar::base_connector::BridgeHealth::default(),
+            )),
         }
     }
 

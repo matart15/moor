@@ -310,6 +310,9 @@ function AdvancedSection({
   const [bridgeUrl, setBridgeUrl] = useState(settings.bridge.deploymentUrl);
   const [bridgeSecret, setBridgeSecret] = useState("");
   const [bridgeStatus, setBridgeStatus] = useState("Not configured");
+  const [bridgeError, setBridgeError] = useState<string | null>(null);
+  const [bridgeLastConnected, setBridgeLastConnected] = useState<number | null>(null);
+  const [bridgeFailures, setBridgeFailures] = useState(0);
   const [secretConfigured, setSecretConfigured] = useState(false);
   const [bridgeSaving, setBridgeSaving] = useState(false);
   useEffect(() => {
@@ -322,12 +325,25 @@ function AdvancedSection({
       headers: buildApiHeaders(runtime),
     });
     if (!response.ok) throw new Error("Could not load bridge status");
-    const result = (await response.json()) as { connection: string; secretConfigured: boolean };
+    const result = (await response.json()) as {
+      connection: string;
+      secretConfigured: boolean;
+      lastConnectedAtMs: number | null;
+      lastError: string | null;
+      consecutiveFailures: number;
+    };
     setBridgeStatus(result.connection);
     setSecretConfigured(result.secretConfigured);
+    setBridgeError(result.lastError);
+    setBridgeLastConnected(result.lastConnectedAtMs);
+    setBridgeFailures(result.consecutiveFailures);
   }, []);
   useEffect(() => {
-    void refreshBridgeStatus().catch(() => {});
+    const refresh = () =>
+      void refreshBridgeStatus().catch(() => setBridgeStatus("Status unavailable"));
+    refresh();
+    const timer = setInterval(refresh, 10000);
+    return () => clearInterval(timer);
   }, [refreshBridgeStatus]);
 
   const saveBridge = async () => {
@@ -475,7 +491,9 @@ function AdvancedSection({
             onChange={(e) => setBridgeSecret(e.target.value)}
           />
           <div className="flex items-center justify-between gap-3">
-            <span className="text-xs">Status: {bridgeStatus}</span>
+            <span className="text-xs" role="status">
+              Status: {bridgeStatus}
+            </span>
             <div className="flex items-center gap-2">
               <Switch
                 checked={settings.bridge.enabled}
@@ -490,8 +508,19 @@ function AdvancedSection({
               </Button>
             </div>
           </div>
+          {bridgeStatus === "Disconnected" && bridgeError && (
+            <p className="text-xs text-error-warm" role="alert">
+              {bridgeError} ({bridgeFailures} consecutive failures). Retrying automatically.
+            </p>
+          )}
+          {bridgeLastConnected && (
+            <p className="text-xs text-[var(--fg-45)]">
+              Last connected: {new Date(bridgeLastConnected).toLocaleString()}
+            </p>
+          )}
           <p className="text-xs text-[var(--fg-45)]">
-            Restart Moor after changing a running connection. Secret is never displayed again.
+            Connection status refreshes every 10 seconds. Restart Moor after changing the deployment
+            URL. Secret is never displayed again.
           </p>
         </CardContent>
       </Card>

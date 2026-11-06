@@ -45,6 +45,39 @@ mod macos {
         }
     }
 
+    // The autostart plugin writes the login agent on each enable/startup.
+    // Amend only our own agent file; launchd uses it at the next login.
+    // A normal Quit (exit 0) must not cause a relaunch.
+    pub(super) fn ensure_crash_recovery(app: &AppHandle) -> Result<(), String> {
+        let app_name = app.package_info().name.clone();
+        let path = launch_agent_path(app, &app_name).ok_or("Cannot locate login agent")?;
+        let existing = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let Some(revised) = with_crash_recovery(&existing) else {
+            return Ok(());
+        };
+        let temporary = path.with_extension("moor-recovery.tmp");
+        fs::write(&temporary, revised).map_err(|e| e.to_string())?;
+        if let Ok(metadata) = fs::metadata(&path) {
+            fs::set_permissions(&temporary, metadata.permissions()).map_err(|e| e.to_string())?;
+        }
+        fs::rename(&temporary, &path).map_err(|e| e.to_string())
+    }
+
+    fn with_crash_recovery(content: &str) -> Option<String> {
+        if content.contains("<key>KeepAlive</key>") {
+            return None;
+        }
+        let marker = "<key>RunAtLoad</key>";
+        if !content.contains(marker) {
+            return None;
+        }
+        Some(content.replacen(
+            marker,
+            "<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>\n                <key>ThrottleInterval</key><integer>10</integer>\n                <key>RunAtLoad</key>",
+            1,
+        ))
+    }
+
     fn is_debug_executable_path(path: &str) -> bool {
         let normalized = path.replace('\\', "/");
         normalized.contains("/src-tauri/target/debug/") || normalized.contains("/target/debug/")
@@ -147,6 +180,26 @@ mod macos {
     }
 
     #[cfg(test)]
+    mod crash_recovery_tests {
+        use super::with_crash_recovery;
+
+        #[test]
+        fn keeps_normal_quit_disabled_and_crashes_restarted() {
+            let generated = "<dict><key>RunAtLoad</key><true/></dict>";
+            let updated = with_crash_recovery(generated).expect("expected update");
+            assert!(updated
+                .contains("<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>"));
+            assert!(updated.contains("<key>ThrottleInterval</key><integer>10</integer>"));
+            assert!(with_crash_recovery(&updated).is_none());
+        }
+
+        #[test]
+        fn never_modifies_unknown_launch_agent_format() {
+            assert!(with_crash_recovery("<plist></plist>").is_none());
+        }
+    }
+
+    #[cfg(test)]
     mod tests {
         #[test]
         fn detects_debug_executable_in_launch_agent_plist() {
@@ -207,6 +260,16 @@ pub(crate) fn refresh_stale_login_agent(app: &AppHandle) {
 
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn refresh_stale_login_agent(_app: &AppHandle) {}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn ensure_crash_recovery(app: &AppHandle) -> Result<(), String> {
+    macos::ensure_crash_recovery(app)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn ensure_crash_recovery(_app: &AppHandle) -> Result<(), String> {
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {

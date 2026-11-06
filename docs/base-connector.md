@@ -13,3 +13,16 @@ Base must independently authorize each user + OAuth client to the correct profil
 > The existing **moor_base_mcp** server targets `https://mild-snail-669.convex.site/mcp` and uses its own OAuth authorization, distinct from the outbound connector secret stored in Keychain. Do not add a duplicate server.
 >
 > Controller compose declares `127.0.0.1:8788:3000` for Local Coder MCP, but it is **not activated** in the running container. After a controlled restart, register the Local Coder MCP server as `http://127.0.0.1:8788/mcp/<token>`. Keep the token secret, expose no LAN port, and preserve the existing OpenAI tunnel until live production acceptance passes.
+
+## Recovery and monitoring (Moor Dev update required)
+
+1. **Start on login / crash recovery:** In **Settings → General**, enable **Auto-start on Login** for the packaged Moor Dev app. Its existing per-user macOS LaunchAgent is amended with `KeepAlive = { SuccessfulExit = false }` and a 10-second throttle. This makes launchd restart Moor after an abnormal exit, but **does not restart it after intentional Quit**. The updated launch agent takes effect at the **next login**; do not add a duplicate supervisor or run original Moor. Auto-start servers require **Auto-start Servers on Launch** and individual server auto-start flags. OAuth consent and credential revocation still require the user.
+2. **Transient Convex outage / Wi-Fi / sleep:** The same Rust worker reconnects with capped exponential backoff (5, 10, 20, 40, then 60 seconds), resetting after the first successful subscription result. No claimed request is replayed after connection loss.
+3. **Diagnostics:** Authenticated `GET /api/bridge` returns `connection`, `lastConnectedAtMs`, `lastMessageAtMs`, `lastError` (sanitized category), `consecutiveFailures`, `retryAfterSeconds`, and `secretConfigured`. Settings → Advanced refreshes this status every 10 seconds while open, showing the last successful connection and any recurring failures. Repeated `Connection secret rejected by Convex` means the Keychain secret differs from the target deployment; it should be corrected, never logged.
+4. **MCP server failure:** Enable **Automatic Health Checks** in Settings → Advanced to detect unhealthy running servers. These checks warn after three failures; server restart is still manual to avoid unintentionally resetting active tool calls. OAuth refresh must be verified separately.
+5. **Request timeout / uncertain writes:** Base expires pending requests after 25 seconds. Once claimed, a tool may have executed even if its response was lost. Check state before attempting a write again; do **not** automatically replay it.
+6. **Mac powered off or application intentionally quit:** No local task can execute and this local-only app cannot issue an out-of-band alert. A separate cloud-side heartbeat and alert destination would be needed for notification when Moor itself is offline. This is **not yet implemented**.
+
+### Release verification
+
+The code and tests in this repository do not update the currently installed app until a new Apple Silicon app bundle is built and installed. Test a real crash/relaunch only **after enabling login startup, logging out and in again**, then validate the bridge endpoint and a read-only tool call. Retain the existing OpenAI tunnel until the new build and production authorization are verified.

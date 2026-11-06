@@ -365,7 +365,9 @@ process.stdin.on("data", (chunk) => {
             .expect("failed to start fake server");
 
         let state = Arc::new(AppState {
-            bridge_status: Arc::new(tokio::sync::RwLock::new("Not configured".into())),
+            bridge_status: Arc::new(tokio::sync::RwLock::new(
+                crate::sidecar::base_connector::BridgeHealth::default(),
+            )),
             db: db.clone(),
             api_token: "test-token".to_string(),
             version: "test".to_string(),
