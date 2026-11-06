@@ -2,7 +2,20 @@
 
 Built into the existing Rust/Tauri process; no additional daemon or public listener.
 
-Configure via **Settings → Advanced → Base MCP Connector**. Enter the Base Convex deployment URL, connection secret, and enable the connection. Secret storage uses macOS Keychain, not SQLite, source control, or a Docker environment file.
+## Moor-managed OAuth pairing (new build; production acceptance pending)
+
+Moor Dev can now pair with Base using the existing `moor_base_mcp` OAuth authorization, without requiring `MOOR_CONNECTION_SECRET` or `MOOR_AGENT_PROFILES` in Base. Base needs the new generic bridge code deployed once.
+
+1. Authorize `moor_base_mcp` with the Base account used by the agent clients (requires the `mcp:write` scope).
+2. In **Settings → Advanced → Base MCP Connector**, enter the Base production Convex cloud URL, enable **Moor-managed OAuth pairing**, enable the connector, and restart Moor. A new random per-user connector secret is stored in macOS Keychain and registered through the existing Base OAuth grant.
+3. Each agent signs into Base through existing OAuth. The agent identity is forwarded to Moor; newly observed clients appear in connector settings. Assign the desired Moor profile there. Unassigned clients fail closed.
+4. Agent/profile/server assignments are changed only in Moor. Pairing renews every 30 minutes; Base connector authorization expires after 90 minutes without an OAuth renewal.
+
+For large tool catalogs (for example Notion plus Sentry), use the profile’s **Curated listing** mode if `tools/list` exceeds Convex’s 180 KB response limit. Curated mode provides discovery and delegated tool invocation without transferring every schema at once.
+
+The old manually configured secret remains available only in legacy mode for non-disruptive migration. Keep the OpenAI tunnel and existing production routing unchanged until native-build, OAuth, cross-agent isolation and live MCP E2E acceptance complete.
+
+**Legacy configuration:** In Settings → Advanced → Base MCP Connector, disable Moor-managed OAuth pairing, enter the Base Convex URL and shared connection secret, and enable the connector. The secret remains in Keychain.
 
 The connector uses the official Convex Rust SDK realtime subscription to `moorBridge:pending`. Each job must be atomically claimed before invoking `handle_request_for_profile`, which applies the existing Moor profile/tool restrictions. A claimed job never retries after a disconnect. It sends the result to `moorBridge:complete`.
 

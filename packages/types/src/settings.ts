@@ -37,6 +37,8 @@ export interface AdvancedSettings {
 export interface BridgeSettings {
   enabled: boolean;
   deploymentUrl: string;
+  paired: boolean;
+  agentProfiles: Record<string, string>;
 }
 
 export interface Settings {
@@ -59,7 +61,7 @@ export type SettingsUpdatePayload = {
 export function createDefaultSettings(): Settings {
   return {
     version: 1,
-    bridge: { enabled: false, deploymentUrl: "" },
+    bridge: { enabled: false, deploymentUrl: "", paired: false, agentProfiles: {} },
     general: {
       autoStartOnLogin: false,
       autoStartServersOnLaunch: false,

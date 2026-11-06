@@ -72,6 +72,10 @@ pub struct Settings {
 pub struct BridgeSettings {
     pub enabled: bool,
     pub deployment_url: String,
+    #[serde(default)]
+    pub paired: bool,
+    #[serde(default)]
+    pub agent_profiles: std::collections::HashMap<String, String>,
 }
 
 pub fn default_settings() -> Settings {
@@ -80,6 +84,8 @@ pub fn default_settings() -> Settings {
         bridge: BridgeSettings {
             enabled: false,
             deployment_url: String::new(),
+            paired: false,
+            agent_profiles: std::collections::HashMap::new(),
         },
         general: GeneralSettings {
             auto_start_on_login: false,
@@ -297,6 +303,13 @@ fn validate_settings_value(value: &Value) -> Result<(), String> {
             && parsed.fragment().is_none();
         if !is_convex {
             return Err("bridge.deploymentUrl must be an HTTPS Convex cloud deployment".into());
+        }
+    }
+    if let Some(mappings) = setting_at(value, "bridge.agentProfiles").and_then(Value::as_object) {
+        for (client, profile) in mappings {
+            if client.is_empty() || client.len() > 512 || !profile.as_str().is_some_and(|s| uuid::Uuid::parse_str(s).is_ok()) {
+                return Err("bridge.agentProfiles must map nonempty client IDs to profile UUIDs".into());
+            }
         }
     }
     if !matches!(
