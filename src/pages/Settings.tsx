@@ -317,6 +317,88 @@ function AdvancedSection({
   const [bridgeFailures, setBridgeFailures] = useState(0);
   const [secretConfigured, setSecretConfigured] = useState(false);
   const [bridgeSaving, setBridgeSaving] = useState(false);
+  const [rankingModel, setRankingModel] = useState(settings.advanced.toolRankingModel);
+  const [rankingRef, setRankingRef] = useState(settings.advanced.toolRankingCredentialRef);
+  const [rankingTimeout, setRankingTimeout] = useState(
+    String(settings.advanced.toolRankingTimeoutMs),
+  );
+  const [rankingSaving, setRankingSaving] = useState(false);
+  const [rankingKey, setRankingKey] = useState("");
+  const [rankingKeySaving, setRankingKeySaving] = useState(false);
+  const [rankingKeyStatus, setRankingKeyStatus] = useState<{
+    configured: boolean;
+    reference: string;
+  } | null>(null);
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const runtime = await getApiRuntime();
+        const response = await fetch(`${runtime.baseUrl}/api/settings/tool-ranking/credential`, {
+          headers: buildApiHeaders(runtime),
+        });
+        if (!response.ok) throw new Error("Could not load Keychain status");
+        const status = (await response.json()) as { configured: boolean; reference: string };
+        if (active) setRankingKeyStatus(status);
+      } catch {
+        if (active) setRankingKeyStatus(null);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [settings.advanced.toolRankingCredentialRef]);
+  const saveRankingKey = async () => {
+    setRankingKeySaving(true);
+    onError(null);
+    try {
+      const runtime = await getApiRuntime();
+      const response = await fetch(`${runtime.baseUrl}/api/settings/tool-ranking/credential`, {
+        method: "POST",
+        headers: buildApiHeaders(runtime),
+        body: JSON.stringify({
+          apiKey: rankingKey.trim(),
+          reference: rankingRef.trim() || "moor-openrouter",
+        }),
+      });
+      if (!response.ok) throw new Error("Unable to save OpenRouter API key to Keychain");
+      const status = (await response.json()) as { configured: boolean; reference: string };
+      setRankingKey("");
+      setRankingRef(status.reference);
+      setRankingKeyStatus(status);
+    } catch (error) {
+      onError(getErrorMessage(error, "Unable to save OpenRouter API key to Keychain"));
+    } finally {
+      setRankingKeySaving(false);
+    }
+  };
+  useEffect(() => {
+    setRankingModel(settings.advanced.toolRankingModel);
+    setRankingRef(settings.advanced.toolRankingCredentialRef);
+    setRankingTimeout(String(settings.advanced.toolRankingTimeoutMs));
+  }, [
+    settings.advanced.toolRankingModel,
+    settings.advanced.toolRankingCredentialRef,
+    settings.advanced.toolRankingTimeoutMs,
+  ]);
+  const saveRanking = async () => {
+    setRankingSaving(true);
+    onError(null);
+    try {
+      await updateSettings({
+        advanced: {
+          toolRankingProvider: "openrouter",
+          toolRankingModel: rankingModel.trim(),
+          toolRankingCredentialRef: rankingRef.trim(),
+          toolRankingTimeoutMs: Number(rankingTimeout),
+        },
+      });
+    } catch (error) {
+      onError(getErrorMessage(error, "Unable to update tool ranking"));
+    } finally {
+      setRankingSaving(false);
+    }
+  };
   const [observedAgents, setObservedAgents] = useState<Array<{ userId: string; clientId: string }>>(
     [],
   );
@@ -590,6 +672,85 @@ function AdvancedSection({
       </Card>
       <Card>
         <CardContent className="p-2 divide-y divide-[var(--fg-06)]">
+          <SettingRow
+            label="Jev-assisted Tool Ranking (OpenRouter)"
+            description="Optional. Sends the query and short descriptions of authorized tools to OpenRouter; disabled by default. No tool schemas or instructions are sent."
+          >
+            <Switch
+              checked={settings.advanced.toolRankingEnabled}
+              onCheckedChange={(v) =>
+                void updateSettings({ advanced: { toolRankingEnabled: v } }).catch((error) =>
+                  onError(getErrorMessage(error, "Unable to toggle tool ranking")),
+                )
+              }
+            />
+          </SettingRow>
+          <div className="px-4 py-3 space-y-2">
+            <p className="text-xs text-[var(--fg-45)]">
+              Provider: OpenRouter. Enter a model ID and save your API key to the native system
+              Keychain. The key is never stored in settings or displayed after saving. Ranking
+              remains disabled until you enable it.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+              <Input
+                aria-label="OpenRouter model ID"
+                placeholder="OpenRouter model ID"
+                value={rankingModel}
+                onChange={(event) => setRankingModel(event.target.value)}
+              />
+              <Input
+                aria-label="Keychain credential reference"
+                placeholder="Keychain credential reference"
+                value={rankingRef}
+                onChange={(event) => setRankingRef(event.target.value)}
+              />
+              <Input
+                aria-label="Ranking timeout (milliseconds)"
+                type="number"
+                min={1000}
+                max={8000}
+                value={rankingTimeout}
+                onChange={(event) => setRankingTimeout(event.target.value)}
+              />
+            </div>
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <Input
+                aria-label="OpenRouter API key"
+                type="password"
+                autoComplete="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                placeholder="OpenRouter API key (stored in Keychain)"
+                value={rankingKey}
+                onChange={(event) => setRankingKey(event.target.value)}
+              />
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={!rankingKey.trim() || rankingKeySaving || rankingSaving}
+                onClick={() => void saveRankingKey()}
+              >
+                Save API key
+              </Button>
+            </div>
+            <p role="status" className="text-xs text-[var(--fg-45)]">
+              {rankingKeyStatus
+                ? rankingKeyStatus.configured
+                  ? `API key saved in Keychain (account: ${rankingKeyStatus.reference})`
+                  : `No API key saved in Keychain (account: ${rankingKeyStatus.reference})`
+                : "Keychain status unavailable"}
+            </p>
+            <div className="flex justify-end">
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={rankingSaving || rankingKeySaving}
+                onClick={() => void saveRanking()}
+              >
+                {t("Apply")}
+              </Button>
+            </div>
+          </div>
           <HealthSettings onError={onError} />
           <SettingRow
             label={t("Log Retention")}

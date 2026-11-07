@@ -32,6 +32,11 @@ export interface AdvancedSettings {
   mcpSessionIdleTtlMs: number;
   mcpHealthChecksEnabled: boolean;
   mcpHealthCheckIntervalSeconds: number;
+  toolRankingEnabled: boolean;
+  toolRankingProvider: string;
+  toolRankingModel: string;
+  toolRankingCredentialRef: string;
+  toolRankingTimeoutMs: number;
 }
 
 export interface BridgeSettings {
@@ -80,6 +85,11 @@ export function createDefaultSettings(): Settings {
       mcpSessionIdleTtlMs: MCP_SESSION_IDLE_TTL_MS_DEFAULT,
       mcpHealthChecksEnabled: false,
       mcpHealthCheckIntervalSeconds: 60,
+      toolRankingEnabled: false,
+      toolRankingProvider: "openrouter",
+      toolRankingModel: "",
+      toolRankingCredentialRef: "",
+      toolRankingTimeoutMs: 3000,
     },
   };
 }

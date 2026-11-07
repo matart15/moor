@@ -10,6 +10,7 @@ pub const MCP_TIMEOUT_MS_DEFAULT: u32 = 30_000;
 pub const MCP_SESSION_IDLE_TTL_MS_MIN: u32 = 300_000;
 pub const MCP_SESSION_IDLE_TTL_MS_MAX: u32 = 86_400_000;
 pub const MCP_SESSION_IDLE_TTL_MS_DEFAULT: u32 = 3_600_000;
+pub const TOOL_RANKING_TIMEOUT_MS_DEFAULT: u32 = 3_000;
 
 /// Distinguishes client input errors (HTTP 400) from internal failures (HTTP 500).
 #[derive(Debug)]
@@ -55,6 +56,11 @@ pub struct AdvancedSettings {
     pub mcp_session_idle_ttl_ms: u32,
     pub mcp_health_checks_enabled: bool,
     pub mcp_health_check_interval_seconds: u32,
+    pub tool_ranking_enabled: bool,
+    pub tool_ranking_provider: String,
+    pub tool_ranking_model: String,
+    pub tool_ranking_credential_ref: String,
+    pub tool_ranking_timeout_ms: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -108,6 +114,11 @@ pub fn default_settings() -> Settings {
             mcp_session_idle_ttl_ms: MCP_SESSION_IDLE_TTL_MS_DEFAULT,
             mcp_health_checks_enabled: false,
             mcp_health_check_interval_seconds: 60,
+            tool_ranking_enabled: false,
+            tool_ranking_provider: "openrouter".to_string(),
+            tool_ranking_model: String::new(),
+            tool_ranking_credential_ref: String::new(),
+            tool_ranking_timeout_ms: TOOL_RANKING_TIMEOUT_MS_DEFAULT,
         },
     }
 }
@@ -288,6 +299,7 @@ fn merge_objects(base: &mut Map<String, Value>, patch: &Map<String, Value>) {
 
 // 数值范围收拢在一张表；新增一个有界设置只需加一行。
 const NUMERIC_BOUNDS: &[(&str, u64, u64)] = &[
+    ("advanced.toolRankingTimeoutMs", 1_000, 8_000),
     ("advanced.mcpHealthCheckIntervalSeconds", 30, 600),
     ("advanced.logRetentionDays", 0, 365),
     ("advanced.sidecarPort", 1024, 65535),
@@ -315,6 +327,41 @@ fn setting_at<'a>(value: &'a Value, dotted: &str) -> Option<&'a Value> {
 }
 
 fn validate_settings_value(value: &Value) -> Result<(), String> {
+    if setting_at(value, "advanced.toolRankingProvider").and_then(Value::as_str)
+        != Some("openrouter")
+    {
+        return Err("advanced.toolRankingProvider must be openrouter".into());
+    }
+    for key in ["advanced.toolRankingModel", "advanced.toolRankingCredentialRef"] {
+        let Some(raw) = setting_at(value, key).and_then(Value::as_str) else {
+            return Err(format!("{key} must be a string"));
+        };
+        if raw.len() > 128 || raw.chars().any(|ch| ch.is_control()) {
+            return Err(format!("{key} must be at most 128 non-control characters"));
+        }
+    }
+    if let Some(reference) =
+        setting_at(value, "advanced.toolRankingCredentialRef").and_then(Value::as_str)
+    {
+        if !reference.is_empty()
+            && !reference
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
+        {
+            return Err(
+                "advanced.toolRankingCredentialRef must use letters, digits, -, _, or .".into(),
+            );
+        }
+    }
+    if let Some(model) = setting_at(value, "advanced.toolRankingModel").and_then(Value::as_str) {
+        if !model.is_empty()
+            && !model
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "-_/.:".contains(c))
+        {
+            return Err("advanced.toolRankingModel contains invalid characters".into());
+        }
+    }
     let url = setting_at(value, "bridge.deploymentUrl")
         .and_then(Value::as_str)
         .unwrap_or("");
@@ -535,6 +582,34 @@ mod tests {
         assert_eq!(get_settings(&reopened).unwrap(), persisted);
         drop(reopened);
         let _ = fs::remove_dir_all(data_dir);
+    }
+
+    #[test]
+    fn tool_ranking_defaults_are_opt_in_and_validate_config() {
+        let defaults = default_settings();
+        assert!(!defaults.advanced.tool_ranking_enabled);
+        assert_eq!(defaults.advanced.tool_ranking_provider, "openrouter");
+        assert!(defaults.advanced.tool_ranking_model.is_empty());
+        assert!(defaults.advanced.tool_ranking_credential_ref.is_empty());
+        let patched = merge_settings_value(defaults, serde_json::json!({
+            "advanced": {
+                "toolRankingEnabled": true,
+                "toolRankingProvider": "openrouter",
+                "toolRankingModel": "vendor/verified-model",
+                "toolRankingCredentialRef": "moor-openrouter",
+                "toolRankingTimeoutMs": 2500
+            }
+        })).unwrap();
+        assert_eq!(patched.advanced.tool_ranking_timeout_ms, 2500);
+        assert_eq!(patched.advanced.tool_ranking_credential_ref, "moor-openrouter");
+        for invalid in [
+            serde_json::json!({"advanced":{"toolRankingProvider":"custom-http"}}),
+            serde_json::json!({"advanced":{"toolRankingCredentialRef":"file:///secrets/key"}}),
+            serde_json::json!({"advanced":{"toolRankingTimeoutMs":25000}}),
+            serde_json::json!({"advanced":{"toolRankingModel":"$(rm -rf .)"}})
+        ] {
+            assert!(merge_settings_value(patched.clone(), invalid).is_err());
+        }
     }
 
     #[test]
