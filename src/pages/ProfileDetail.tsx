@@ -6,6 +6,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Server,
   FolderOpen,
@@ -33,7 +34,7 @@ import {
   suggestDefaultPins,
   summarizeExposure,
 } from "@/lib/tool-exposure";
-import type { ExposureMode, ProfileToolGroup, RiskPolicy, ToolDetail } from "@moor/types";
+import type { ExposureMode, ProfileToolGroup, RiskLevel, RiskPolicy, ToolDetail } from "@moor/types";
 
 export function ProfileDetail() {
   const { t } = useTranslation();
@@ -160,6 +161,7 @@ function ToolGovernanceCard({
   } = useProfileGovernance(profileId);
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState("");
+  const [riskFilter, setRiskFilter] = useState<RiskLevel | "all">("all");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selection, setSelection] = useState<ToolSelection[]>([]);
   const [highlighted, setHighlighted] = useState<string | null>(null);
@@ -194,23 +196,25 @@ function ToolGovernanceCard({
 
   const trimmed = search.trim().toLowerCase();
   const filteredGroups = useMemo(() => {
-    if (!trimmed) return groups;
+    if (!trimmed && riskFilter === "all") return groups;
     return groups
       .map((group) => {
         const serverMatches = group.serverName.toLowerCase().includes(trimmed);
-        if (serverMatches) return group;
         const tools = group.tools.filter(
           (tool) =>
-            tool.toolName.toLowerCase().includes(trimmed) ||
-            tool.exposedName.toLowerCase().includes(trimmed) ||
-            (tool.description ?? "").toLowerCase().includes(trimmed),
+            (riskFilter === "all" || tool.riskLevel === riskFilter) &&
+            (serverMatches ||
+              tool.toolName.toLowerCase().includes(trimmed) ||
+              tool.exposedName.toLowerCase().includes(trimmed) ||
+              (tool.description ?? "").toLowerCase().includes(trimmed)),
         );
         return tools.length > 0 ? { ...group, tools } : null;
       })
       .filter((group): group is ProfileToolGroup => group !== null);
-  }, [groups, trimmed]);
+  }, [groups, trimmed, riskFilter]);
 
-  const isExpanded = (serverId: string) => trimmed.length > 0 || expanded.has(serverId);
+  const hasActiveFilter = trimmed.length > 0 || riskFilter !== "all";
+  const isExpanded = (serverId: string) => hasActiveFilter || expanded.has(serverId);
   const toggleExpanded = (serverId: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -415,6 +419,24 @@ function ToolGovernanceCard({
               className="pl-9"
             />
           </div>
+          <Select
+            value={riskFilter}
+            onValueChange={(value) => {
+              setRiskFilter(value as RiskLevel | "all");
+              setSelection([]);
+            }}
+          >
+            <SelectTrigger aria-label={t("Filter by risk level")} className="w-[180px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("All risk levels")}</SelectItem>
+              <SelectItem value="safe">{t("Safe")}</SelectItem>
+              <SelectItem value="write">{t("Write")}</SelectItem>
+              <SelectItem value="destructive">{t("Destructive")}</SelectItem>
+              <SelectItem value="unknown">{t("Unknown risk")}</SelectItem>
+            </SelectContent>
+          </Select>
           {selection.length > 0 && (
             <>
               <span className="font-body text-xs text-[var(--fg-45)]">
@@ -472,7 +494,7 @@ function ToolGovernanceCard({
                   className="h-7 px-2 text-xs"
                   onClick={() => setSelection(allFilteredTools)}
                 >
-                  {t(trimmed ? "Select filtered" : "Select all")}
+                  {t(hasActiveFilter ? "Select filtered" : "Select all")}
                 </Button>
               )}
               <Button
@@ -481,11 +503,16 @@ function ToolGovernanceCard({
                 className="h-7 px-2 text-xs"
                 onClick={invertFilteredSelection}
               >
-                {t(trimmed ? "Invert filtered" : "Invert all")}
+                {t(hasActiveFilter ? "Invert filtered" : "Invert all")}
               </Button>
             </>
           )}
         </div>
+        {riskFilter !== "all" && (
+          <p className="font-body text-xs text-[var(--fg-45)]">
+            {t("Risk labels are heuristic. Review matching tools before changing permissions.")}
+          </p>
+        )}
       </CardHeader>
       <CardContent className="space-y-1">
         {isLoading ? (
