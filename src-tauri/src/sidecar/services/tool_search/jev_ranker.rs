@@ -9,6 +9,7 @@ use std::time::Duration;
 
 const ENDPOINT: &str = "https://openrouter.ai/api/v1/chat/completions";
 const KEYCHAIN_SERVICE: &str = "com.specdest.moor-dev.tool-ranking";
+pub(crate) const DEFAULT_CREDENTIAL_REF: &str = "moor-openrouter";
 const MAX_QUERY_CHARS: usize = 400;
 const MAX_REQUEST_BYTES: usize = 16_384;
 const MAX_RESPONSE_BYTES: usize = 16_384;
@@ -67,6 +68,25 @@ async fn keychain_credential(reference: &str) -> Option<String> {
     .await
     .ok()
     .flatten()
+}
+
+/// Manage the ranking key through the authenticated local Settings API. No key
+/// value is returned or included in error messages.
+pub(crate) fn credential_configured(reference: &str) -> Result<bool, &'static str> {
+    let entry = keyring::Entry::new(KEYCHAIN_SERVICE, reference)
+        .map_err(|_| "System credential store is unavailable")?;
+    match entry.get_password() {
+        Ok(value) => Ok(!value.trim().is_empty()),
+        Err(keyring::Error::NoEntry) => Ok(false),
+        Err(_) => Err("System credential store is unavailable"),
+    }
+}
+
+pub(crate) fn store_credential(reference: &str, api_key: &str) -> Result<(), &'static str> {
+    keyring::Entry::new(KEYCHAIN_SERVICE, reference)
+        .map_err(|_| "System credential store is unavailable")?
+        .set_password(api_key)
+        .map_err(|_| "System credential store is unavailable")
 }
 
 /// No provider error/body is logged. Any error becomes deterministic fallback

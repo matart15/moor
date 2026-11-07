@@ -323,6 +323,55 @@ function AdvancedSection({
     String(settings.advanced.toolRankingTimeoutMs),
   );
   const [rankingSaving, setRankingSaving] = useState(false);
+  const [rankingKey, setRankingKey] = useState("");
+  const [rankingKeySaving, setRankingKeySaving] = useState(false);
+  const [rankingKeyStatus, setRankingKeyStatus] = useState<{
+    configured: boolean;
+    reference: string;
+  } | null>(null);
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const runtime = await getApiRuntime();
+        const response = await fetch(`${runtime.baseUrl}/api/settings/tool-ranking/credential`, {
+          headers: buildApiHeaders(runtime),
+        });
+        if (!response.ok) throw new Error("Could not load Keychain status");
+        const status = (await response.json()) as { configured: boolean; reference: string };
+        if (active) setRankingKeyStatus(status);
+      } catch {
+        if (active) setRankingKeyStatus(null);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [settings.advanced.toolRankingCredentialRef]);
+  const saveRankingKey = async () => {
+    setRankingKeySaving(true);
+    onError(null);
+    try {
+      const runtime = await getApiRuntime();
+      const response = await fetch(`${runtime.baseUrl}/api/settings/tool-ranking/credential`, {
+        method: "POST",
+        headers: buildApiHeaders(runtime),
+        body: JSON.stringify({
+          apiKey: rankingKey.trim(),
+          reference: rankingRef.trim() || "moor-openrouter",
+        }),
+      });
+      if (!response.ok) throw new Error("Unable to save OpenRouter API key to Keychain");
+      const status = (await response.json()) as { configured: boolean; reference: string };
+      setRankingKey("");
+      setRankingRef(status.reference);
+      setRankingKeyStatus(status);
+    } catch (error) {
+      onError(getErrorMessage(error, "Unable to save OpenRouter API key to Keychain"));
+    } finally {
+      setRankingKeySaving(false);
+    }
+  };
   useEffect(() => {
     setRankingModel(settings.advanced.toolRankingModel);
     setRankingRef(settings.advanced.toolRankingCredentialRef);
@@ -638,9 +687,9 @@ function AdvancedSection({
           </SettingRow>
           <div className="px-4 py-3 space-y-2">
             <p className="text-xs text-[var(--fg-45)]">
-              Provider: OpenRouter. The model must be available on your account. The credential
-              reference resolves only in the native Moor Keychain service; no key is stored in
-              settings. Missing or invalid credentials always use local ranking.
+              Provider: OpenRouter. Enter a model ID and save your API key to the native system
+              Keychain. The key is never stored in settings or displayed after saving. Ranking
+              remains disabled until you enable it.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
               <Input
@@ -664,11 +713,38 @@ function AdvancedSection({
                 onChange={(event) => setRankingTimeout(event.target.value)}
               />
             </div>
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <Input
+                aria-label="OpenRouter API key"
+                type="password"
+                autoComplete="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                placeholder="OpenRouter API key (stored in Keychain)"
+                value={rankingKey}
+                onChange={(event) => setRankingKey(event.target.value)}
+              />
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={!rankingKey.trim() || rankingKeySaving || rankingSaving}
+                onClick={() => void saveRankingKey()}
+              >
+                Save API key
+              </Button>
+            </div>
+            <p role="status" className="text-xs text-[var(--fg-45)]">
+              {rankingKeyStatus
+                ? rankingKeyStatus.configured
+                  ? `API key saved in Keychain (account: ${rankingKeyStatus.reference})`
+                  : `No API key saved in Keychain (account: ${rankingKeyStatus.reference})`
+                : "Keychain status unavailable"}
+            </p>
             <div className="flex justify-end">
               <Button
                 variant="secondary"
                 size="sm"
-                disabled={rankingSaving}
+                disabled={rankingSaving || rankingKeySaving}
                 onClick={() => void saveRanking()}
               >
                 {t("Apply")}

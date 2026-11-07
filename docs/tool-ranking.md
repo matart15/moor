@@ -16,9 +16,12 @@ In **Settings → Advanced → Jev-assisted Tool Ranking**, supply:
 - **Provider**: `openrouter` (the only supported provider).
 - **Model ID**: an actual OpenRouter model ID verified for the account at
   configuration time (no model is selected by default).
-- **Credential reference**: the **account name** of a preprovisioned entry in
-  the native macOS Keychain service `com.specdest.moor-dev.tool-ranking`.
-  Example reference: `moor-openrouter`. This field never contains a key.
+- **Credential reference**: the Keychain account name, default `moor-openrouter`.
+  Existing custom references still work; this field never contains a key.
+- **OpenRouter API key**: enter it in the masked field and click **Save API key**.
+  Moor stores it as a system Keychain password under service
+  `com.specdest.moor-dev.tool-ranking`, using the selected account reference.
+  The UI only displays whether a key exists, never the saved key itself.
 - **Timeout**: 1–8 seconds (default 3000 ms).
 
 The native macOS Moor process reads the Keychain password through the
@@ -26,11 +29,12 @@ existing `keyring` library. It **does not** read Docker/Hermes ignored secret
 files or Controller environment variables. Hermes's
 `secrets/openrouter.env` belongs to the container-side credential boundary:
 do not mount, duplicate, commit, display or transmit that secret as a shortcut.
-A native Keychain credential must be provisioned through an approved secure
-workflow before this can be enabled operationally. There is currently no
-approved native key-delivery workflow verified from Mac Local Coder Docker.
-No new host command, mount, API secret endpoint or credential migration is
-introduced here.
+The Keychain password is written through Moor's existing authenticated,
+loopback-only settings API. A new key can be saved while ranking is disabled;
+it is not sent to OpenRouter until ranking is enabled and a model ID is set.
+No host command, mount, environment secret, or credential migration is required.
+The key itself is never stored in the settings database, echoed in the API
+response, or restored to the password field after saving.
 
 ## Network and fallback
 

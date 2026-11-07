@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
-mod jev_ranker;
+pub(crate) mod jev_ranker;
 
 // Only stable names are cached. The authorized catalog, schemas and instructions are
 // freshly resolved for every request; never cache tools across profile boundaries.
