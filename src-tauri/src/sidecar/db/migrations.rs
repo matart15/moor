@@ -83,6 +83,12 @@ pub fn run_migrations(db: &Database) -> Result<(), String> {
         );",
     )?;
 
+    db.exec("CREATE TABLE IF NOT EXISTS adapter_operations (
+        server_id TEXT PRIMARY KEY REFERENCES mcp_servers(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL CHECK(kind IN ('api', 'cli')),
+        definition TEXT NOT NULL
+    )")?;
+
     ensure_column(db, "tool_discoveries", "exposed_name", "TEXT")?;
     ensure_column(db, "mcp_servers", "headers", "TEXT")?;
     ensure_column(
@@ -160,7 +166,7 @@ pub fn run_migrations(db: &Database) -> Result<(), String> {
     backfill_server_sort_order(db)?;
     normalize_audit_timestamps(db)?;
     // 版本号在列补齐之后才推进：迁移中途失败时下一次启动仍会重跑 ensure_column（幂等）。
-    db.exec("PRAGMA user_version = 6")?;
+    db.exec("PRAGMA user_version = 7")?;
 
     Ok(())
 }
@@ -436,7 +442,7 @@ mod tests {
         assert_eq!(
             db.query_one("PRAGMA user_version", &[], |row| row.get::<_, i64>(0))
                 .unwrap(),
-            Some(6)
+            Some(7)
         );
         let plan = db.query_all("EXPLAIN QUERY PLAN SELECT * FROM audit_logs WHERE timestamp >= ?1 AND timestamp < ?2 ORDER BY timestamp DESC", &[&timestamps[0], &timestamps[1]], |row| row.get::<_, String>(3)).unwrap();
         assert!(plan
