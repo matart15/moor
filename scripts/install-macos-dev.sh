@@ -10,10 +10,8 @@ EXPECTED_ID='com.specdest.moor-dev'
 [[ -f "$SOURCE/Contents/MacOS/moor" ]] || { echo 'Moor Dev executable missing.' >&2; exit 1; }
 actual_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$SOURCE/Contents/Info.plist")"
 [[ "$actual_id" == "$EXPECTED_ID" ]] || { echo 'Unexpected bundle ID; refusing installation.' >&2; exit 1; }
-# Verify existing signatures (including ad-hoc) if present; do not treat unsigned code as notarized.
-if /usr/bin/codesign -dv "$SOURCE" >/dev/null 2>&1; then
-  /usr/bin/codesign --verify --deep --strict "$SOURCE" || { echo 'Code signature validation failed.' >&2; exit 1; }
-fi
+# A Tauri development build may contain an incomplete ad-hoc signature.
+# Sign the staged bundle below; no Apple Developer ID or notarization is claimed.
 mkdir -p "$HOME/Applications"
 STAGE="$(mktemp -d "$HOME/Applications/.moor-dev-install.XXXXXX")"
 BACKUP=""
@@ -21,6 +19,8 @@ cleanup() { rm -rf "$STAGE"; }
 trap cleanup EXIT
 /usr/bin/ditto "$SOURCE" "$STAGE/Moor Dev.app"
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$STAGE/Moor Dev.app/Contents/Info.plist")" == "$EXPECTED_ID" ]] || exit 1
+/usr/bin/codesign --force --deep --sign - "$STAGE/Moor Dev.app" || { echo 'Local ad-hoc signing failed.' >&2; exit 1; }
+/usr/bin/codesign --verify --deep --strict "$STAGE/Moor Dev.app" || { echo 'Staged app signature verification failed.' >&2; exit 1; }
 # Local, source-built development bundle only. Never disable Gatekeeper globally.
 /usr/bin/xattr -dr com.apple.quarantine "$STAGE/Moor Dev.app" 2>/dev/null || true
 if [[ -d "$DEST" ]]; then
@@ -39,19 +39,44 @@ if ! mv "$STAGE/Moor Dev.app" "$DEST"; then
   if [[ -n "$BACKUP" ]]; then mv "$BACKUP" "$DEST"; fi
   echo 'Installation failed; previous app restored.' >&2; exit 1
 fi
-if ! /usr/bin/open "$DEST"; then
+if ! /bin/launchctl asuser "$(/usr/bin/id -u)" /usr/bin/open -n "$DEST"; then
   rm -rf "$DEST"
   if [[ -n "$BACKUP" ]]; then mv "$BACKUP" "$DEST"; fi
   echo 'Launch failed; previous app restored.' >&2; exit 1
 fi
 health_ok=false
-for i in {1..20}; do
-  if /usr/bin/curl --silent --fail --max-time 2 'http://127.0.0.1:9323/api/health' | /usr/bin/grep -q '"ok"'; then
-    health_ok=true; break
-  fi
+DATA_DIR="$HOME/Library/Application Support/com.specdest.moor-dev"
+# The entire /api/* surface requires the owner-only X-Moor-Token header.
+# Read the rotating token from disk inside Python, never put it in command arguments or logs.
+health_ready() {
+  /usr/bin/python3 - "$DATA_DIR" <<'PYHEALTH'
+import json, pathlib, stat, sys, urllib.request
+folder = pathlib.Path(sys.argv[1])
+try:
+    secret = folder / 'management-token'
+    mode = secret.stat()
+    if stat.S_IMODE(mode.st_mode) != 0o600:
+        sys.exit(1)
+    token = secret.read_text().strip()
+    port = int((folder / 'port').read_text().strip())
+    if not (1024 <= port <= 65535 and len(token) == 64):
+        sys.exit(1)
+    request = urllib.request.Request(f'http://127.0.0.1:{port}/api/health',
+        headers={'X-Moor-Token': token})
+    with urllib.request.urlopen(request, timeout=2) as response:
+        sys.exit(0 if json.load(response).get('status') == 'ok' else 1)
+except (OSError, ValueError, KeyError, TimeoutError, json.JSONDecodeError):
+    sys.exit(1)
+PYHEALTH
+}
+for i in {1..30}; do
+  if health_ready; then health_ok=true; break; fi
   sleep 1
 done
 if [[ "$health_ok" != true ]]; then
+  echo 'Startup health failed; checking launch diagnostics.' >&2
+  /usr/bin/pgrep -fl 'Moor Dev.app/Contents/MacOS/moor' >&2 || true
+  echo 'Authenticated local health check did not pass.' >&2
   /usr/bin/osascript -e 'tell application id "com.specdest.moor-dev" to quit' >/dev/null 2>&1 || true
   for i in {1..20}; do
     if ! /usr/bin/pgrep -f '/Moor Dev.app/Contents/MacOS/moor' >/dev/null 2>&1; then break; fi

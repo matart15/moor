@@ -12,8 +12,11 @@ pub fn save_entries(db: &Database, entries: &[(String, String)]) -> Result<(), S
     let now = chrono::Utc::now().to_rfc3339();
     db.transaction(|conn| {
         // Remove keys written by the old dotted-map format before saving its JSON leaf.
-        conn.execute("DELETE FROM settings WHERE key LIKE 'bridge.agentProfiles.%'", [])
-            .map_err(|e| e.to_string())?;
+        conn.execute(
+            "DELETE FROM settings WHERE key LIKE 'bridge.agentProfiles.%'",
+            [],
+        )
+        .map_err(|e| e.to_string())?;
         for (key, value) in entries {
             conn.execute(
                 "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)",

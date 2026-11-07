@@ -12,10 +12,11 @@ cd "$ROOT"
   echo 'Unexpected bundle ID: refusing to build over released Moor.' >&2; exit 2;
 }
 pnpm install --frozen-lockfile
+cargo fmt --manifest-path src-tauri/Cargo.toml
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo test --manifest-path src-tauri/Cargo.toml profile_tokens_enforce_agent_isolation --lib
 cargo test --manifest-path src-tauri/Cargo.toml isolated_tokens_and_rotation --lib
-pnpm tauri build --target aarch64-apple-darwin --bundles app
+CI=true pnpm tauri build --target aarch64-apple-darwin --bundles app
 printf '\nMoor Dev app bundle:\n'
 APP='src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Moor Dev.app'
 [[ -d "$APP" && -f "$APP/Contents/Info.plist" ]] || { echo 'Expected app bundle missing' >&2; exit 1; }

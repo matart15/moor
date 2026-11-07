@@ -1,8 +1,8 @@
 use crate::sidecar::{
+    db::server_repo::ServerRepository,
     http::AppState,
     mcp::{jsonrpc, server},
     services::settings,
-    db::server_repo::ServerRepository,
 };
 use convex::{ConvexClient, FunctionResult, Value};
 use futures::StreamExt;
@@ -98,21 +98,30 @@ fn paired_secret() -> Result<String, String> {
         return Ok(value);
     }
     let secret = format!("{}{}", uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
-    entry.set_password(&secret).map_err(|_| "System credential store unavailable".to_string())?;
+    entry
+        .set_password(&secret)
+        .map_err(|_| "System credential store unavailable".to_string())?;
     Ok(secret)
 }
 
 async fn base_access_token(state: &AppState) -> Result<String, String> {
-    let server = ServerRepository::new(&state.db).find_all()?
+    let server = ServerRepository::new(&state.db)
+        .find_all()?
         .into_iter()
         .find(|s| s.name == "moor_base_mcp" && s.connection_type == "http")
         .ok_or("Register and authorize moor_base_mcp first")?;
     let url = server.url.ok_or("Base MCP URL missing")?;
     let authorization = state.server_manager.authorization();
-    let provider = authorization.credential_provider(&server.id, &url).await?
+    let provider = authorization
+        .credential_provider(&server.id, &url)
+        .await?
         .ok_or("Base MCP OAuth authorization required")?;
-    let headers = provider.headers().await.map_err(|_| "Base OAuth token unavailable".to_string())?;
-    headers.get("authorization")
+    let headers = provider
+        .headers()
+        .await
+        .map_err(|_| "Base OAuth token unavailable".to_string())?;
+    headers
+        .get("authorization")
         .and_then(|v| v.strip_prefix("Bearer "))
         .map(str::to_string)
         .ok_or("Base OAuth token unavailable".into())
@@ -137,7 +146,9 @@ async fn execute(state: Arc<AppState>, request: &Json) -> Json {
     let raw = request["rpcJson"].as_str().unwrap_or("");
     let rpc: Json = match serde_json::from_str(raw) {
         Ok(v) => v,
-        Err(_) => return json!({"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Invalid JSON"}}),
+        Err(_) => {
+            return json!({"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Invalid JSON"}})
+        }
     };
     let id = rpc.get("id").cloned().unwrap_or(Json::Null);
     let paired = request.get("clientId").is_some();
@@ -146,10 +157,14 @@ async fn execute(state: Arc<AppState>, request: &Json) -> Json {
         let client_id = request["clientId"].as_str().unwrap_or("");
         let key = format!("{user_id}:{client_id}");
         let config = settings::get_settings(&state.db).ok();
-        let profile = config.as_ref().and_then(|s| s.bridge.agent_profiles.get(&key));
+        let profile = config
+            .as_ref()
+            .and_then(|s| s.bridge.agent_profiles.get(&key));
         match profile {
             Some(profile) => profile.clone(),
-            None => return json!({"jsonrpc":"2.0","id":id,"error":{"code":-32003,"message":"Agent not assigned to a Moor profile"}}),
+            None => {
+                return json!({"jsonrpc":"2.0","id":id,"error":{"code":-32003,"message":"Agent not assigned to a Moor profile"}})
+            }
         }
     } else {
         request["profileId"].as_str().unwrap_or("").to_string()
@@ -185,7 +200,11 @@ async fn process(
     let id = row["id"].as_str().ok_or("Missing queue ID")?;
     let mut claim_args = args(secret);
     claim_args.insert("id".into(), id.into());
-    let claim_function = if paired { "moorBridgePaired:claim" } else { "moorBridge:claim" };
+    let claim_function = if paired {
+        "moorBridgePaired:claim"
+    } else {
+        "moorBridge:claim"
+    };
     if require_value(
         client
             .mutation(claim_function, claim_args)
@@ -202,7 +221,14 @@ async fn process(
     finish_args.insert("responseJson".into(), response.into());
     require_value(
         client
-            .mutation(if paired { "moorBridgePaired:complete" } else { "moorBridge:complete" }, finish_args)
+            .mutation(
+                if paired {
+                    "moorBridgePaired:complete"
+                } else {
+                    "moorBridge:complete"
+                },
+                finish_args,
+            )
             .await
             .map_err(|e| e.to_string())?,
     )?;
@@ -219,11 +245,20 @@ pub async fn run(state: Arc<AppState>, status: BridgeStatus) {
             tokio::time::sleep(Duration::from_secs(5)).await;
             continue;
         };
-        let secret = match if config.paired { paired_secret() } else { load_secret() } {
+        let secret = match if config.paired {
+            paired_secret()
+        } else {
+            load_secret()
+        } {
             Ok(secret) => secret,
             Err(_) => {
                 let mut health = status.write().await;
-                health.connection = if config.paired { "Pairing credential unavailable" } else { "Connection secret not configured" }.into();
+                health.connection = if config.paired {
+                    "Pairing credential unavailable"
+                } else {
+                    "Connection secret not configured"
+                }
+                .into();
                 health.last_error = Some("System credential store unavailable");
                 health.retry_after_seconds = None;
                 drop(health);
@@ -328,7 +363,8 @@ mod recovery_tests {
                 "clientId": "unassigned-agent",
                 "rpcJson": "{\"jsonrpc\":\"2.0\",\"id\":17,\"method\":\"tools/list\"}"
             }),
-        ).await;
+        )
+        .await;
         assert_eq!(result["id"], 17);
         assert_eq!(result["error"]["code"], -32003);
         let _ = std::fs::remove_dir_all(dir);
