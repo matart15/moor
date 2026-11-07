@@ -12,6 +12,7 @@ use std::collections::HashSet;
 
 #[derive(Debug, Clone)]
 pub struct ToolCatalogEntry {
+    pub server_id: String,
     pub server_name: String,
     pub risk_level: String,
     pub tool_name: String,
@@ -264,6 +265,7 @@ fn project_catalog(tools: &[ToolVisibility], selection: Selection) -> Vec<ToolCa
         })
         .filter_map(|visible| {
             Some(ToolCatalogEntry {
+                server_id: visible.server_id.clone(),
                 server_name: visible.server_name.clone(),
                 risk_level: visible.risk.as_str().to_string(),
                 tool_name: visible.tool_name.clone(),

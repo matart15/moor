@@ -1,7 +1,7 @@
 > **Specdest fork changes (review when merging upstream):**
 >
 > 1. **Per-agent profiles:** Independent authenticated MCP endpoints, tool permissions, and profile tokens.
-> 2. **Per-server agent instructions:** Optional text on each MCP server, combined for enabled servers into the MCP `initialize` response for that profile. The agent client must honor MCP instructions; reconnect after edits.
+> 2. **Per-server agent instructions:** Optional text on each MCP server, combined for enabled servers into the MCP `initialize` response and returned with relevant `moor_search_tools` results for that profile. The agent client must honor MCP instructions; reconnect to refresh the `initialize` instructions after edits. These instructions are advisory, not access controls.
 > 3. **Automated management:** Local owner-only API token access for the Controller CLI, plus a separate Moor Dev app.
 >    Remove either customization if upstream provides equivalent functionality.
 
@@ -179,7 +179,7 @@ Beyond server-level on/off, drill into any server to disable specific tools. Dis
 
 **Direct listing** is the default for new and existing Profiles and lists every enabled, callable tool allowed by the Profile's policy. **Curated listing** lists only pinned tools plus two gateway meta tools:
 
-- `moor_search_tools`: search available tools by keyword and server name, with pagination and input schemas in the results
+- `moor_search_tools`: find tools from natural-language requests with ranked keyword matching, pagination, input schemas, risk levels, and per-server usage instructions in the results
 - `moor_call_tool`: call a discovered tool by its exposed name and return the downstream result
 
 Use the Profile's pin controls to keep individual tools or a server's tools in the default catalog. Switching to Curated listing opens a picker for the initial pins. With no pinned tools, the catalog still contains the two meta tools. Unpinned tools remain searchable and callable, including by a previously cached exposed name; disabled or policy-blocked tools do not. You can switch back to Direct listing at any time.

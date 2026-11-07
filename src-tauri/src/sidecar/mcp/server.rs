@@ -120,11 +120,11 @@ fn meta_tool_definitions() -> Vec<Value> {
     vec![
         json!({
             "name": SEARCH_TOOL_NAME,
-            "description": "Search the tools this gateway can expose but is not listing right now. Call this before claiming a tool is unavailable: when the tool you need is not in the current list, search first.",
+            "description": "Find tools for the user's task using natural-language keywords. Search before claiming a capability is unavailable; results include tool schemas and any server-specific usage instructions.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "query": { "type": "string", "description": "Space-separated keywords; all must match" },
+                    "query": { "type": "string", "description": "Describe the action and service (for example: find Notion documents). Partial matches are ranked." },
                     "server": { "type": "string", "description": "Only search tools from servers whose name contains this" },
                     "limit": { "type": "integer", "minimum": 1, "maximum": MAX_SEARCH_LIMIT },
                     "cursor": { "type": "string", "description": "Opaque cursor from a previous search" }
@@ -747,6 +747,35 @@ process.stdin.on("data", (chunk) => {
             tools[0]["riskLevel"], "unknown",
             "search results must carry the risk level"
         );
+    }
+
+    #[tokio::test]
+    async fn search_results_include_server_instructions() {
+        let gateway = curated_gateway("search-instructions").await;
+        let rule = "Search existing pages before creating new ones.";
+        gateway
+            .db
+            .run(
+                "UPDATE mcp_servers SET instructions = ?1 WHERE name = 'fake'",
+                &[&rule],
+            )
+            .expect("failed to set server instructions");
+
+        let initialized = handle_request(
+            jsonrpc::Id::Number(1),
+            "initialize",
+            None,
+            gateway.state.clone(),
+            Some("test-agent"),
+        )
+        .await;
+        assert!(initialized["result"]["instructions"]
+            .as_str()
+            .expect("initialize instructions")
+            .contains(rule));
+
+        let result = search(gateway.state.clone(), json!({ "query": "report" })).await;
+        assert_eq!(result["tools"][0]["serverInstructions"], rule);
     }
 
     #[tokio::test]
