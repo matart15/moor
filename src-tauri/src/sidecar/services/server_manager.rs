@@ -13,12 +13,12 @@ pub use session::{McpConnector, McpSession};
 use status::ServerStatus;
 
 use crate::sidecar::db::adapter_repo::{AdapterKind, AdapterRepository};
-use crate::sidecar::services::adapter_execution;
 use crate::sidecar::db::profile_repo::ProfileRepository;
 use crate::sidecar::db::server_repo::{Server, ServerRepository};
 use crate::sidecar::db::tool_discovery_repo::{ToolDiscoveryRepository, ToolInsert};
 use crate::sidecar::db::Database;
 use crate::sidecar::mcp::transport::request_error::{RequestError, RequestErrorKind};
+use crate::sidecar::services::adapter_execution;
 use crate::sidecar::services::audit_recorder::{AuditRecorder, ToolCallRecord, ToolCallVia};
 use crate::sidecar::services::event_bus::{EventBus, Evt};
 use crate::sidecar::services::server_authorization::ServerAuthorization;
@@ -216,7 +216,10 @@ impl ServerManager {
         let _ = repo.reset_running_statuses();
         let servers = repo.find_all().unwrap_or_default();
         let adapters: HashSet<String> = AdapterRepository::new(&self.db)
-            .ids().unwrap_or_default().into_iter().collect();
+            .ids()
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
 
         let mut map = self.slots.lock().await;
         map.clear();
@@ -225,7 +228,11 @@ impl ServerManager {
                 row.id.clone(),
                 ServerSlot {
                     name: row.name.clone(),
-                    status: if adapters.contains(&row.id) { ServerStatus::Running } else { ServerStatus::Stopped },
+                    status: if adapters.contains(&row.id) {
+                        ServerStatus::Running
+                    } else {
+                        ServerStatus::Stopped
+                    },
                     auto_start: row.auto_start,
                     start_token: 0,
                     start_deadline: None,
@@ -236,17 +243,22 @@ impl ServerManager {
             );
         }
         drop(map);
-        for id in adapters { self.persist_server_status(&id, "running", None); }
+        for id in adapters {
+            self.persist_server_status(&id, "running", None);
+        }
     }
 
     /// Activated virtual adapters have no MCP session and are always callable
     /// through the same profile catalog. They never spawn a native process.
     pub async fn register_adapter(&self, id: &str) -> Result<(), String> {
-        let server = ServerRepository::new(&self.db).find_by_id(id)?
+        let server = ServerRepository::new(&self.db)
+            .find_by_id(id)?
             .ok_or("Adapter server not found")?;
         self.add_server(&server).await;
         let mut slots = self.slots.lock().await;
-        if let Some(slot) = slots.get_mut(id) { slot.status = ServerStatus::Running; }
+        if let Some(slot) = slots.get_mut(id) {
+            slot.status = ServerStatus::Running;
+        }
         Ok(())
     }
 
@@ -313,7 +325,11 @@ impl ServerManager {
     }
 
     pub async fn start_server(&self, id: &str) -> Result<(), RequestError> {
-        if AdapterRepository::new(&self.db).get(id).map_err(RequestError::from)?.is_some() {
+        if AdapterRepository::new(&self.db)
+            .get(id)
+            .map_err(RequestError::from)?
+            .is_some()
+        {
             return Err("Virtual adapter is managed through /api/adapters".into());
         }
         let timeouts = self.get_timeout_settings();
@@ -497,7 +513,9 @@ impl ServerManager {
 
     pub async fn stop_server(&self, id: &str) -> Result<(), String> {
         if AdapterRepository::new(&self.db).get(id)?.is_some() {
-            return Err("Virtual adapters cannot be stopped; disable the profile tool instead".into());
+            return Err(
+                "Virtual adapters cannot be stopped; disable the profile tool instead".into(),
+            );
         }
         let old_session = {
             let mut slots = self.slots.lock().await;
@@ -681,10 +699,17 @@ impl ServerManager {
         // Adapter parameters, error messages and output may contain arbitrary
         // secrets. Audit only field names and outcome/error category; keep
         // original MCP session audit behavior unchanged.
-        let is_adapter = owner.is_some_and(|tool| AdapterRepository::new(&self.db)
-            .get(&tool.server_id).ok().flatten().is_some());
+        let is_adapter = owner.is_some_and(|tool| {
+            AdapterRepository::new(&self.db)
+                .get(&tool.server_id)
+                .ok()
+                .flatten()
+                .is_some()
+        });
         let error = result.as_ref().err().map(|error| {
-            if !is_adapter { return error.to_string(); }
+            if !is_adapter {
+                return error.to_string();
+            }
             match error {
                 ToolCallError::InvalidTool(_) => "invalid_arguments",
                 ToolCallError::PolicyDenied { .. } => "policy_denied",
@@ -692,7 +717,8 @@ impl ServerManager {
                 ToolCallError::Timeout(_) => "timeout",
                 ToolCallError::Downstream { .. } => "downstream_error",
                 ToolCallError::Execution(_) => "adapter_execution_error",
-            }.to_string()
+            }
+            .to_string()
         });
         let sanitized_arguments = is_adapter.then(|| serde_json::json!({
             "providedFields": args.as_object().map(|fields| fields.keys().collect::<Vec<_>>()).unwrap_or_default()
@@ -705,7 +731,11 @@ impl ServerManager {
                 server_id: owner.map(|tool| tool.server_id.as_str()),
                 tool_name: exposed_name,
                 arguments: sanitized_arguments.as_ref().unwrap_or(&args),
-                result: if is_adapter { result.as_ref().ok().and(sanitized_result.as_ref()) } else { result.as_ref().ok() },
+                result: if is_adapter {
+                    result.as_ref().ok().and(sanitized_result.as_ref())
+                } else {
+                    result.as_ref().ok()
+                },
                 error: error.as_deref(),
                 duration_ms: if owner.is_some() {
                     start_time.elapsed().as_millis() as i64
@@ -767,19 +797,31 @@ impl ServerManager {
         let mut exposure = loaded.resolve(Some(&callable_ids));
         // A CLI facade must never be discoverable in a profile whose
         // underlying approved executor is denied, blocked or stopped.
-        let callable_bridge_tools: HashSet<(String, String)> = exposure.tools.iter()
+        let callable_bridge_tools: HashSet<(String, String)> = exposure
+            .tools
+            .iter()
             .filter(|tool| matches!(tool.access, ToolAccess::Callable))
             .map(|tool| (tool.server_id.clone(), tool.tool_name.clone()))
             .collect();
-        let adapters = AdapterRepository::new(&self.db).list()
+        let adapters = AdapterRepository::new(&self.db)
+            .list()
             .map_err(|_| ToolCallError::Execution("Unable to read adapter configuration".into()))?;
         for adapter in adapters {
-            if let AdapterKind::Cli { bridge_server_id, bridge_tool_name, .. } = &adapter.definition.adapter {
-                if !callable_bridge_tools.contains(&(bridge_server_id.clone(), bridge_tool_name.clone())) {
-                    if let Some(tool) = exposure.tools.iter_mut().find(|tool|
-                        tool.server_id == adapter.id && tool.tool_name == adapter.definition.tool_name) {
+            if let AdapterKind::Cli {
+                bridge_server_id,
+                bridge_tool_name,
+                ..
+            } = &adapter.definition.adapter
+            {
+                if !callable_bridge_tools
+                    .contains(&(bridge_server_id.clone(), bridge_tool_name.clone()))
+                {
+                    if let Some(tool) = exposure.tools.iter_mut().find(|tool| {
+                        tool.server_id == adapter.id
+                            && tool.tool_name == adapter.definition.tool_name
+                    }) {
                         if matches!(tool.access, ToolAccess::Callable) {
-                            tool.access = ToolAccess::ServerUnavailable;
+                            tool.access = ToolAccess::ToolDisabled;
                             tool.listed = false;
                         }
                     }
@@ -2461,7 +2503,13 @@ process.stdin.on("data", (chunk) => {{
                 .iter()
                 .map(|tool| tool["name"].as_str().unwrap())
                 .collect();
-            assert_eq!(names, vec!["moor_search_tools", "moor_call_tool"]);
+            assert_eq!(
+                names,
+                vec![
+                    "moor_search_tools",
+                    crate::sidecar::mcp::server::CALL_TOOL_NAME
+                ]
+            );
         }
         state.server_manager.stop_server(&id).await.unwrap();
         let _ = std::fs::remove_dir_all(dir);
@@ -2508,7 +2556,13 @@ process.stdin.on("data", (chunk) => {{
             .iter()
             .map(|tool| tool["name"].as_str().unwrap())
             .collect();
-        assert_eq!(names, vec!["moor_search_tools", "moor_call_tool"]);
+        assert_eq!(
+            names,
+            vec![
+                "moor_search_tools",
+                crate::sidecar::mcp::server::CALL_TOOL_NAME
+            ]
+        );
         let next_result = exposure_request(state.clone(), "tools/list", None).await;
         assert_eq!(next_result["result"]["tools"].as_array().unwrap().len(), 1);
         assert_eq!(

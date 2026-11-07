@@ -87,27 +87,45 @@ impl<'a> AdapterRepository<'a> {
     }
 
     pub fn get(&self, id: &str) -> Result<Option<StoredAdapter>, String> {
-        self.db.query_one(
-            "SELECT server_id, definition FROM adapter_operations WHERE server_id = ?1",
-            &[&id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )?.map(|(id, encoded)| {
-            Ok(StoredAdapter { id, definition: serde_json::from_str(&encoded)
-                .map_err(|_| "Invalid stored adapter definition".to_string())? })
-        }).transpose()
+        self.db
+            .query_one(
+                "SELECT server_id, definition FROM adapter_operations WHERE server_id = ?1",
+                &[&id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )?
+            .map(|(id, encoded)| {
+                Ok(StoredAdapter {
+                    id,
+                    definition: serde_json::from_str(&encoded)
+                        .map_err(|_| "Invalid stored adapter definition".to_string())?,
+                })
+            })
+            .transpose()
     }
 
     pub fn list(&self) -> Result<Vec<StoredAdapter>, String> {
-        self.db.query_all("SELECT server_id, definition FROM adapter_operations ORDER BY server_id", &[],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
-            .into_iter().map(|(id, encoded)| {
-                Ok(StoredAdapter { id, definition: serde_json::from_str(&encoded)
-                    .map_err(|_| "Invalid stored adapter definition".to_string())? })
-            }).collect()
+        self.db
+            .query_all(
+                "SELECT server_id, definition FROM adapter_operations ORDER BY server_id",
+                &[],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )?
+            .into_iter()
+            .map(|(id, encoded)| {
+                Ok(StoredAdapter {
+                    id,
+                    definition: serde_json::from_str(&encoded)
+                        .map_err(|_| "Invalid stored adapter definition".to_string())?,
+                })
+            })
+            .collect()
     }
 
     pub fn ids(&self) -> Result<Vec<String>, String> {
-        self.db.query_all("SELECT server_id FROM adapter_operations", &[], |row| row.get(0))
+        self.db
+            .query_all("SELECT server_id FROM adapter_operations", &[], |row| {
+                row.get(0)
+            })
     }
 
     /// Insert the virtual server, its discoverable tool, and active-profile
@@ -133,12 +151,19 @@ impl<'a> AdapterRepository<'a> {
                 .map_err(|e| e.to_string())?;
             Ok(())
         })?;
-        Ok(StoredAdapter { id, definition: definition.clone() })
+        Ok(StoredAdapter {
+            id,
+            definition: definition.clone(),
+        })
     }
 
     /// Retain the stable server ID and tool name, including stored profile
     /// deny/pin lists. Updating a tool name requires deleting and recreating.
-    pub fn update(&self, id: &str, definition: &AdapterDefinition) -> Result<StoredAdapter, String> {
+    pub fn update(
+        &self,
+        id: &str,
+        definition: &AdapterDefinition,
+    ) -> Result<StoredAdapter, String> {
         let old = self.get(id)?.ok_or("Adapter not found")?;
         if old.definition.tool_name != definition.tool_name {
             return Err("toolName is immutable; create a new adapter".into());
@@ -155,12 +180,18 @@ impl<'a> AdapterRepository<'a> {
                 rusqlite::params![definition.description, schema, definition.risk_level, id]).map_err(|e| e.to_string())?;
             Ok(())
         })?;
-        Ok(StoredAdapter { id: id.into(), definition: definition.clone() })
+        Ok(StoredAdapter {
+            id: id.into(),
+            definition: definition.clone(),
+        })
     }
 
     pub fn delete(&self, id: &str) -> Result<bool, String> {
-        if self.get(id)?.is_none() { return Ok(false); }
-        self.db.run("DELETE FROM mcp_servers WHERE id = ?1", &[&id])?;
+        if self.get(id)?.is_none() {
+            return Ok(false);
+        }
+        self.db
+            .run("DELETE FROM mcp_servers WHERE id = ?1", &[&id])?;
         Ok(true)
     }
 }
@@ -179,31 +210,73 @@ mod tests {
         db.run_migrations().unwrap();
         ProfileRepository::new(&db).seed_default().unwrap();
         let def = AdapterDefinition {
-            name: "Example".into(), tool_name: "read".into(), description: "Read only".into(),
+            name: "Example".into(),
+            tool_name: "read".into(),
+            description: "Read only".into(),
             input_schema: json!({"type":"object","properties":{},"additionalProperties":false}),
             risk_level: "safe".into(),
             adapter: AdapterKind::Api {
-                base_url: "https://example.com".into(), path: "/api".into(), method: "GET".into(),
-                headers: Default::default(), query_fields: Default::default(), body_fields: vec![],
-                credential_ref: None, allow_local_http: false, timeout_ms: 1000, max_response_bytes: 1024,
+                base_url: "https://example.com".into(),
+                path: "/api".into(),
+                method: "GET".into(),
+                headers: Default::default(),
+                query_fields: Default::default(),
+                body_fields: vec![],
+                credential_ref: None,
+                allow_local_http: false,
+                timeout_ms: 1000,
+                max_response_bytes: 1024,
             },
         };
         let repo = AdapterRepository::new(&db);
         let adapter = repo.create(&def).unwrap();
-        let tools = ToolCatalogService::load_active_profile(&db).unwrap().resolve(None).callable_tools();
+        let tools = ToolCatalogService::load_active_profile(&db)
+            .unwrap()
+            .resolve(None)
+            .callable_tools();
         assert_eq!(tools.len(), 1);
         assert_eq!(tools[0].exposed_name, "example__read");
         assert_eq!(tools[0].server_id, adapter.id);
         assert_eq!(tools[0].risk_level, "safe");
-        assert_eq!(repo.get(&adapter.id).unwrap().unwrap().definition.tool_name, "read");
-        assert!(repo.update(&adapter.id, &AdapterDefinition {tool_name: "new".into(), ..def.clone() }).is_err());
-        repo.update(&adapter.id, &AdapterDefinition {description: "Changed".into(), ..def}).unwrap();
+        assert_eq!(
+            repo.get(&adapter.id).unwrap().unwrap().definition.tool_name,
+            "read"
+        );
+        assert!(repo
+            .update(
+                &adapter.id,
+                &AdapterDefinition {
+                    tool_name: "new".into(),
+                    ..def.clone()
+                }
+            )
+            .is_err());
+        repo.update(
+            &adapter.id,
+            &AdapterDefinition {
+                description: "Changed".into(),
+                ..def
+            },
+        )
+        .unwrap();
         drop(db);
         let db = Database::open(&path).unwrap();
         db.run_migrations().unwrap();
-        assert_eq!(AdapterRepository::new(&db).get(&adapter.id).unwrap().unwrap().definition.description, "Changed");
+        assert_eq!(
+            AdapterRepository::new(&db)
+                .get(&adapter.id)
+                .unwrap()
+                .unwrap()
+                .definition
+                .description,
+            "Changed"
+        );
         assert!(AdapterRepository::new(&db).delete(&adapter.id).unwrap());
-        assert!(ToolCatalogService::load_active_profile(&db).unwrap().resolve(None).callable_tools().is_empty());
+        assert!(ToolCatalogService::load_active_profile(&db)
+            .unwrap()
+            .resolve(None)
+            .callable_tools()
+            .is_empty());
         drop(db);
         let _ = std::fs::remove_file(path);
     }

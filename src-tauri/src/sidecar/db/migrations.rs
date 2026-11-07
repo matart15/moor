@@ -83,11 +83,13 @@ pub fn run_migrations(db: &Database) -> Result<(), String> {
         );",
     )?;
 
-    db.exec("CREATE TABLE IF NOT EXISTS adapter_operations (
+    db.exec(
+        "CREATE TABLE IF NOT EXISTS adapter_operations (
         server_id TEXT PRIMARY KEY REFERENCES mcp_servers(id) ON DELETE CASCADE,
         kind TEXT NOT NULL CHECK(kind IN ('api', 'cli')),
         definition TEXT NOT NULL
-    )")?;
+    )",
+    )?;
 
     ensure_column(db, "tool_discoveries", "exposed_name", "TEXT")?;
     ensure_column(db, "mcp_servers", "headers", "TEXT")?;

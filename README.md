@@ -184,7 +184,7 @@ Beyond server-level on/off, drill into any server to disable specific tools. Dis
 **Direct listing** is the default for new and existing Profiles and lists every enabled, callable tool allowed by the Profile's policy. **Curated listing** lists only pinned tools plus two gateway meta tools:
 
 - `moor_search_tools`: find tools from natural-language requests with ranked keyword matching, pagination, input schemas, risk levels, and per-server usage instructions in the results
-- `moor_call_tool`: call a discovered tool by its exposed name and return the downstream result
+- `moor_mcp_call_tool`: call a discovered tool by its exposed name and return the downstream result (`moor_call_tool` remains a supported legacy alias)
 
 Use the Profile's pin controls to keep individual tools or a server's tools in the default catalog. Switching to Curated listing opens a picker for the initial pins. With no pinned tools, the catalog still contains the two meta tools. Unpinned tools remain searchable and callable, including by a previously cached exposed name; disabled or policy-blocked tools do not. You can switch back to Direct listing at any time.
 

@@ -37,7 +37,10 @@ fn parse_ranked_ids(response: &str, allowed: &HashSet<&str>) -> Option<Vec<Strin
         return None;
     }
     let mut seen = HashSet::new();
-    if ids.iter().any(|id| !allowed.contains(id.as_str()) || !seen.insert(id.as_str())) {
+    if ids
+        .iter()
+        .any(|id| !allowed.contains(id.as_str()) || !seen.insert(id.as_str()))
+    {
         return None;
     }
     Some(ids)
@@ -108,7 +111,10 @@ pub(super) async fn rank(
     if payload.to_string().len() > MAX_REQUEST_BYTES {
         return None;
     }
-    let allowed: HashSet<_> = shortlist.iter().map(|entry| entry.exposed_name.as_str()).collect();
+    let allowed: HashSet<_> = shortlist
+        .iter()
+        .map(|entry| entry.exposed_name.as_str())
+        .collect();
     let timeout = Duration::from_millis(settings.tool_ranking_timeout_ms as u64);
     tokio::time::timeout(timeout, async {
         let api_key = keychain_credential(&settings.tool_ranking_credential_ref).await?;
@@ -194,21 +200,23 @@ mod tests {
         assert!(parse_provider_response(StatusCode::OK, b"invalid json", &allowed).is_none());
         assert!(parse_provider_response(StatusCode::OK, b"{\"choices\":[]}", &allowed).is_none());
         let fabricated = json!({"choices":[{"message":{"content":"[\"other_profile__delete\"]"}}]});
-        assert!(
-            parse_provider_response(StatusCode::OK, fabricated.to_string().as_bytes(), &allowed)
-                .is_none()
-        );
+        assert!(parse_provider_response(
+            StatusCode::OK,
+            fabricated.to_string().as_bytes(),
+            &allowed
+        )
+        .is_none());
     }
 
     #[tokio::test]
     async fn bounded_provider_wait_ends_without_result() {
-        let fallback: Option<Vec<String>> = tokio::time::timeout(
-            Duration::from_millis(1),
-            async {
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                Some(vec!["unreachable".into()])
-            }
-        ).await.ok().flatten();
+        let fallback: Option<Vec<String>> = tokio::time::timeout(Duration::from_millis(1), async {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            Some(vec!["unreachable".into()])
+        })
+        .await
+        .ok()
+        .flatten();
         assert!(fallback.is_none());
     }
 
@@ -225,7 +233,11 @@ mod tests {
         };
         let value = shortlist_payload("find notes", &[&entry]).to_string();
         for forbidden in [
-            "must-not-transfer", "secret", "private", "riskLevel", "serverInstructions",
+            "must-not-transfer",
+            "secret",
+            "private",
+            "riskLevel",
+            "serverInstructions",
         ] {
             assert!(!value.contains(forbidden));
         }

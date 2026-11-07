@@ -1056,115 +1056,260 @@ process.stdin.on("data", (chunk) => {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
-            axum::serve(listener, Router::new().route("/health", get(|| async { "healthy" })))
-                .await.unwrap();
+            axum::serve(
+                listener,
+                Router::new().route("/health", get(|| async { "healthy" })),
+            )
+            .await
+            .unwrap();
         });
         let gateway = curated_gateway("api-adapter").await;
         let definition = AdapterDefinition {
-            name: "Status API".into(), tool_name: "health".into(),
-            description: "Get health check".into(), risk_level: "safe".into(),
+            name: "Status API".into(),
+            tool_name: "health".into(),
+            description: "Get health check".into(),
+            risk_level: "safe".into(),
             input_schema: json!({"type":"object", "properties":{}, "additionalProperties":false}),
             adapter: AdapterKind::Api {
-                base_url: format!("http://{addr}"), path: "/health".into(), method: "GET".into(),
-                headers: Default::default(), query_fields: Default::default(), body_fields: vec![],
-                credential_ref: None, allow_local_http: true, timeout_ms: 1000, max_response_bytes: 1024,
+                base_url: format!("http://{addr}"),
+                path: "/health".into(),
+                method: "GET".into(),
+                headers: Default::default(),
+                query_fields: Default::default(),
+                body_fields: vec![],
+                credential_ref: None,
+                allow_local_http: true,
+                timeout_ms: 1000,
+                max_response_bytes: 1024,
             },
         };
-        let stored = AdapterRepository::new(&gateway.db).create(&definition).unwrap();
-        gateway.state.server_manager.register_adapter(&stored.id).await.unwrap();
+        let stored = AdapterRepository::new(&gateway.db)
+            .create(&definition)
+            .unwrap();
+        gateway
+            .state
+            .server_manager
+            .register_adapter(&stored.id)
+            .await
+            .unwrap();
         let search_result = search(gateway.state.clone(), json!({"query":"health"})).await;
-        assert!(search_result["tools"].as_array().unwrap().iter().any(|tool|
-            tool["name"] == "status_api__health"));
+        assert!(search_result["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool["name"] == "status_api__health"));
         for alias in [CALL_TOOL_NAME, LEGACY_CALL_TOOL_NAME] {
-            let result = handle_request(jsonrpc::Id::Number(1), "tools/call",
-                Some(json!({"name":alias,"arguments":{"name":"status_api__health","arguments":{}}})),
-                gateway.state.clone(), Some("test-agent")).await;
-            assert_eq!(result["result"]["content"][0]["text"], "healthy", "{result}");
+            let result = handle_request(
+                jsonrpc::Id::Number(1),
+                "tools/call",
+                Some(
+                    json!({"name":alias,"arguments":{"name":"status_api__health","arguments":{}}}),
+                ),
+                gateway.state.clone(),
+                Some("test-agent"),
+            )
+            .await;
+            assert_eq!(
+                result["result"]["content"][0]["text"], "healthy",
+                "{result}"
+            );
         }
         let rows = AuditLogRepository::new(&gateway.db)
-            .query_logs(None, Some("status_api__health"), None, None, Some(10), None).unwrap();
+            .query_logs(None, Some("status_api__health"), None, None, Some(10), None)
+            .unwrap();
         assert_eq!(rows.len(), 2);
-        assert!(rows[0].result.as_ref().is_some_and(|value| value["status"] == "success"));
-        assert!(!serde_json::to_string(&rows[0].result).unwrap().contains("healthy"));
-        let profile_id = ProfileRepository::new(&gateway.db).find_active_id().unwrap().unwrap();
-        ProfileRepository::new(&gateway.db).upsert_profile_server(&profile_id, &stored.id,
-            None, Some(&vec!["health".to_string()])).unwrap();
+        assert!(rows[0]
+            .result
+            .as_ref()
+            .is_some_and(|value| value["status"] == "success"));
+        assert!(!serde_json::to_string(&rows[0].result)
+            .unwrap()
+            .contains("healthy"));
+        let profile_id = ProfileRepository::new(&gateway.db)
+            .find_active_id()
+            .unwrap()
+            .unwrap();
+        ProfileRepository::new(&gateway.db)
+            .upsert_profile_server(
+                &profile_id,
+                &stored.id,
+                None,
+                Some(&vec!["health".to_string()]),
+            )
+            .unwrap();
         let denied = handle_request(jsonrpc::Id::Number(2), "tools/call",
             Some(json!({"name":LEGACY_CALL_TOOL_NAME,"arguments":{"name":"status_api__health","arguments":{}}})),
             gateway.state.clone(), Some("test-agent")).await;
         assert_eq!(denied["error"]["code"], jsonrpc::INVALID_PARAMS);
-        assert!(!search(gateway.state.clone(), json!({"query":"health"})).await["tools"]
-            .as_array().unwrap().iter().any(|t| t["name"] == "status_api__health"));
+        assert!(
+            !search(gateway.state.clone(), json!({"query":"health"})).await["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|t| t["name"] == "status_api__health")
+        );
         // Different authenticated profile: the virtual tool was never
         // assigned, so even a previously cached meta-tool name must fail.
-        let second = ProfileRepository::new(&gateway.db).create("isolated-agent").unwrap();
+        let second = ProfileRepository::new(&gateway.db)
+            .create("isolated-agent")
+            .unwrap();
         let scoped = handle_request_for_profile(jsonrpc::Id::Number(3), "tools/call",
             Some(json!({"name":CALL_TOOL_NAME,"arguments":{"name":"status_api__health","arguments":{}}})),
             gateway.state.clone(), Some("isolated-agent"), Some(&second.id)).await;
         assert_eq!(scoped["error"]["code"], jsonrpc::INVALID_PARAMS);
         // Re-enable on the original profile, but block destructive risk.
-        ProfileRepository::new(&gateway.db).upsert_profile_server(&profile_id, &stored.id,
-            None, Some(&vec![])).unwrap();
+        ProfileRepository::new(&gateway.db)
+            .upsert_profile_server(&profile_id, &stored.id, None, Some(&vec![]))
+            .unwrap();
         crate::sidecar::db::tool_discovery_repo::ToolDiscoveryRepository::new(&gateway.db)
-            .set_tool_risk(&stored.id, "health",
-                crate::sidecar::services::tool_risk::RiskLevel::Destructive).unwrap();
-        ProfileRepository::new(&gateway.db).update(&profile_id,
-            crate::sidecar::db::profile_repo::ProfileUpdate {
-                risk_policy: Some("block_destructive"), ..Default::default()
-            }).unwrap();
+            .set_tool_risk(
+                &stored.id,
+                "health",
+                crate::sidecar::services::tool_risk::RiskLevel::Destructive,
+            )
+            .unwrap();
+        ProfileRepository::new(&gateway.db)
+            .update(
+                &profile_id,
+                crate::sidecar::db::profile_repo::ProfileUpdate {
+                    risk_policy: Some("block_destructive"),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
         let blocked = handle_request_for_profile(jsonrpc::Id::Number(4), "tools/call",
             Some(json!({"name":LEGACY_CALL_TOOL_NAME,"arguments":{"name":"status_api__health","arguments":{}}})),
             gateway.state.clone(), Some("test-agent"), Some(&profile_id)).await;
         assert_eq!(blocked["error"]["code"], jsonrpc::POLICY_DENIED);
+        // Only the adapter management API may remove virtual definitions;
+        // ordinary server deletion must preserve their policy/registry state.
+        let ordinary_delete =
+            crate::sidecar::services::server_service::ServerService::delete_server(
+                &gateway.db,
+                &gateway.state.server_manager,
+                &stored.id,
+            )
+            .await;
+        assert!(matches!(
+            ordinary_delete,
+            Err(crate::sidecar::services::server_service::ServerServiceError::Validation(_))
+        ));
+        assert!(AdapterRepository::new(&gateway.db)
+            .get(&stored.id)
+            .unwrap()
+            .is_some());
         server.abort();
     }
 
     #[tokio::test]
     async fn cli_adapter_delegates_approved_typed_argv_only_when_bridge_is_allowed() {
         use crate::sidecar::db::adapter_repo::{AdapterDefinition, AdapterKind, AdapterRepository};
-        let gateway = start_test_gateway_with_tools("cli-adapter",
-            r#"[{ "name": "execute_approved_cli" }]"#).await;
-        let profile_id = ProfileRepository::new(&gateway.db).find_active_id().unwrap().unwrap();
-        ProfileRepository::new(&gateway.db).update(&profile_id,
-            crate::sidecar::db::profile_repo::ProfileUpdate { exposure_mode: Some("curated"), ..Default::default() }).unwrap();
+        let gateway =
+            start_test_gateway_with_tools("cli-adapter", r#"[{ "name": "execute_approved_cli" }]"#)
+                .await;
+        let profile_id = ProfileRepository::new(&gateway.db)
+            .find_active_id()
+            .unwrap()
+            .unwrap();
+        ProfileRepository::new(&gateway.db)
+            .update(
+                &profile_id,
+                crate::sidecar::db::profile_repo::ProfileUpdate {
+                    exposure_mode: Some("curated"),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
         let definition = AdapterDefinition {
-            name: "Approved CLI".into(), tool_name: "status".into(),
-            description: "Read approved container status".into(), risk_level: "safe".into(),
+            name: "Approved CLI".into(),
+            tool_name: "status".into(),
+            description: "Read approved container status".into(),
+            risk_level: "safe".into(),
             input_schema: json!({"type":"object", "properties":{"key":{"type":"string"}},
                 "required":["key"], "additionalProperties":false}),
             adapter: AdapterKind::Cli {
-                bridge_server_id: gateway.server_id.clone(), bridge_tool_name: "execute_approved_cli".into(),
-                executable: "/usr/local/bin/approved-status".into(), working_directory: "/workplace/project".into(),
-                fixed_args: vec!["--json".into()], argument_fields: vec!["key".into()],
-                approval_id: "approval-status".into(), timeout_ms: 1000, max_output_bytes: 8192,
+                bridge_server_id: gateway.server_id.clone(),
+                bridge_tool_name: "execute_approved_cli".into(),
+                executable: "/usr/local/bin/approved-status".into(),
+                working_directory: "/workplace/project".into(),
+                fixed_args: vec!["--json".into()],
+                argument_fields: vec!["key".into()],
+                approval_id: "approval-status".into(),
+                timeout_ms: 1000,
+                max_output_bytes: 8192,
             },
         };
         crate::sidecar::services::adapter_execution::validate_definition(&definition).unwrap();
-        let stored = AdapterRepository::new(&gateway.db).create(&definition).unwrap();
-        gateway.state.server_manager.register_adapter(&stored.id).await.unwrap();
-        let search_result = search(gateway.state.clone(), json!({"query":"approved container status"})).await;
-        assert!(search_result["tools"].as_array().unwrap().iter().any(|t| t["name"] == "approved_cli__status"));
-        let call = handle_request(jsonrpc::Id::Number(1), "tools/call",
+        let stored = AdapterRepository::new(&gateway.db)
+            .create(&definition)
+            .unwrap();
+        gateway
+            .state
+            .server_manager
+            .register_adapter(&stored.id)
+            .await
+            .unwrap();
+        let search_result = search(
+            gateway.state.clone(),
+            json!({"query":"approved container status"}),
+        )
+        .await;
+        assert!(search_result["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t["name"] == "approved_cli__status"));
+        let call = handle_request(
+            jsonrpc::Id::Number(1),
+            "tools/call",
             Some(json!({"name":CALL_TOOL_NAME,
                 "arguments":{"name":"approved_cli__status", "arguments":{"key":"a;b"}}})),
-            gateway.state.clone(), Some("test-agent")).await;
-        let text = call["result"]["content"][0]["text"].as_str().expect("CLI returned MCP result");
+            gateway.state.clone(),
+            Some("test-agent"),
+        )
+        .await;
+        let text = call["result"]["content"][0]["text"]
+            .as_str()
+            .expect("CLI returned MCP result");
         let delegated: Value = serde_json::from_str(text).unwrap();
         assert_eq!(delegated["argv"], json!(["--json", "a;b"]));
         assert_eq!(delegated["cwd"], "/workplace/project");
-        let error = handle_request(jsonrpc::Id::Number(2), "tools/call",
+        let error = handle_request(
+            jsonrpc::Id::Number(2),
+            "tools/call",
             Some(json!({"name":"approved_cli__status", "arguments":{"key":5}})),
-            gateway.state.clone(), Some("test-agent")).await;
+            gateway.state.clone(),
+            Some("test-agent"),
+        )
+        .await;
         assert_eq!(error["error"]["code"], jsonrpc::INVALID_PARAMS);
-        ProfileRepository::new(&gateway.db).upsert_profile_server(&profile_id, &gateway.server_id,
-            None, Some(&vec!["execute_approved_cli".to_string()])).unwrap();
-        let denied = handle_request(jsonrpc::Id::Number(3), "tools/call",
+        ProfileRepository::new(&gateway.db)
+            .upsert_profile_server(
+                &profile_id,
+                &gateway.server_id,
+                None,
+                Some(&vec!["execute_approved_cli".to_string()]),
+            )
+            .unwrap();
+        let denied = handle_request(
+            jsonrpc::Id::Number(3),
+            "tools/call",
             Some(json!({"name":LEGACY_CALL_TOOL_NAME,
                 "arguments":{"name":"approved_cli__status", "arguments":{"key":"hi"}}})),
-            gateway.state.clone(), Some("test-agent")).await;
+            gateway.state.clone(),
+            Some("test-agent"),
+        )
+        .await;
         assert_eq!(denied["error"]["code"], jsonrpc::INVALID_PARAMS);
-        assert!(!search(gateway.state.clone(), json!({"query":"approved container status"})).await["tools"]
-            .as_array().unwrap().iter().any(|tool| tool["name"] == "approved_cli__status"));
+        assert!(!search(
+            gateway.state.clone(),
+            json!({"query":"approved container status"})
+        )
+        .await["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool["name"] == "approved_cli__status"));
     }
 
     #[tokio::test]

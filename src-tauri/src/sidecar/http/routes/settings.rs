@@ -67,11 +67,14 @@ async fn get_ranking_credential(
         settings.advanced.tool_ranking_credential_ref
     };
     let account = reference.clone();
-    let configured = tokio::task::spawn_blocking(move || jev_ranker::credential_configured(&account))
-        .await
-        .map_err(|_| AppError::internal("System credential store is unavailable"))?
-        .map_err(AppError::internal)?;
-    Ok(Json(serde_json::json!({ "configured": configured, "reference": reference })))
+    let configured =
+        tokio::task::spawn_blocking(move || jev_ranker::credential_configured(&account))
+            .await
+            .map_err(|_| AppError::internal("System credential store is unavailable"))?
+            .map_err(AppError::internal)?;
+    Ok(Json(
+        serde_json::json!({ "configured": configured, "reference": reference }),
+    ))
 }
 
 #[derive(serde::Deserialize)]
@@ -121,9 +124,11 @@ async fn save_ranking_credential(
         .map_err(|_| AppError::internal("System credential store is unavailable"))?
         .map_err(AppError::internal)?;
     if current.advanced.tool_ranking_credential_ref != reference {
-        update_settings(State(state), axum::Json(patch)).await?;
+        let _ = update_settings(State(state), axum::Json(patch)).await?;
     }
-    Ok(Json(serde_json::json!({ "configured": true, "reference": reference })))
+    Ok(Json(
+        serde_json::json!({ "configured": true, "reference": reference }),
+    ))
 }
 
 #[cfg(test)]
@@ -147,7 +152,13 @@ mod tests {
     #[test]
     fn openrouter_key_validation_never_echoes_credentials() {
         let too_long = "x".repeat(513);
-        for invalid in ["", "short", "one two three", "key\nwith-newline", too_long.as_str()] {
+        for invalid in [
+            "",
+            "short",
+            "one two three",
+            "key\nwith-newline",
+            too_long.as_str(),
+        ] {
             let error = validate_openrouter_key(invalid).expect_err("invalid key");
             assert_eq!(error.status_code(), axum::http::StatusCode::BAD_REQUEST);
             assert!(!error.to_string().contains(invalid) || invalid.is_empty());

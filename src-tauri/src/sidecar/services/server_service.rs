@@ -217,9 +217,14 @@ impl ServerService {
         id: &str,
         body: &UpdateServerInput,
     ) -> Result<Server, ServerServiceError> {
-        if crate::sidecar::db::adapter_repo::AdapterRepository::new(db).get(id)
-            .map_err(ServerServiceError::Internal)?.is_some() {
-            return Err(ServerServiceError::Validation("Use /api/adapters to edit virtual adapter definitions".into()));
+        if crate::sidecar::db::adapter_repo::AdapterRepository::new(db)
+            .get(id)
+            .map_err(ServerServiceError::Internal)?
+            .is_some()
+        {
+            return Err(ServerServiceError::Validation(
+                "Use /api/adapters to edit virtual adapter definitions".into(),
+            ));
         }
         let authorization = server_manager.authorization();
         let lifecycle = authorization.lifecycle(id).await;
@@ -340,6 +345,15 @@ impl ServerService {
         server_manager: &Arc<ServerManager>,
         id: &str,
     ) -> Result<(), ServerServiceError> {
+        if crate::sidecar::db::adapter_repo::AdapterRepository::new(db)
+            .get(id)
+            .map_err(ServerServiceError::Internal)?
+            .is_some()
+        {
+            return Err(ServerServiceError::Validation(
+                "Use /api/adapters to remove virtual adapter definitions".into(),
+            ));
+        }
         ServerRepository::new(db)
             .find_by_id(id)
             .map_err(ServerServiceError::Internal)?

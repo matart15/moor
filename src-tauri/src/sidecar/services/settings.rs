@@ -332,7 +332,10 @@ fn validate_settings_value(value: &Value) -> Result<(), String> {
     {
         return Err("advanced.toolRankingProvider must be openrouter".into());
     }
-    for key in ["advanced.toolRankingModel", "advanced.toolRankingCredentialRef"] {
+    for key in [
+        "advanced.toolRankingModel",
+        "advanced.toolRankingCredentialRef",
+    ] {
         let Some(raw) = setting_at(value, key).and_then(Value::as_str) else {
             return Err(format!("{key} must be a string"));
         };
@@ -591,22 +594,29 @@ mod tests {
         assert_eq!(defaults.advanced.tool_ranking_provider, "openrouter");
         assert!(defaults.advanced.tool_ranking_model.is_empty());
         assert!(defaults.advanced.tool_ranking_credential_ref.is_empty());
-        let patched = merge_settings_value(defaults, serde_json::json!({
-            "advanced": {
-                "toolRankingEnabled": true,
-                "toolRankingProvider": "openrouter",
-                "toolRankingModel": "vendor/verified-model",
-                "toolRankingCredentialRef": "moor-openrouter",
-                "toolRankingTimeoutMs": 2500
-            }
-        })).unwrap();
+        let patched = merge_settings_value(
+            defaults,
+            serde_json::json!({
+                "advanced": {
+                    "toolRankingEnabled": true,
+                    "toolRankingProvider": "openrouter",
+                    "toolRankingModel": "vendor/verified-model",
+                    "toolRankingCredentialRef": "moor-openrouter",
+                    "toolRankingTimeoutMs": 2500
+                }
+            }),
+        )
+        .unwrap();
         assert_eq!(patched.advanced.tool_ranking_timeout_ms, 2500);
-        assert_eq!(patched.advanced.tool_ranking_credential_ref, "moor-openrouter");
+        assert_eq!(
+            patched.advanced.tool_ranking_credential_ref,
+            "moor-openrouter"
+        );
         for invalid in [
             serde_json::json!({"advanced":{"toolRankingProvider":"custom-http"}}),
             serde_json::json!({"advanced":{"toolRankingCredentialRef":"file:///secrets/key"}}),
             serde_json::json!({"advanced":{"toolRankingTimeoutMs":25000}}),
-            serde_json::json!({"advanced":{"toolRankingModel":"$(rm -rf .)"}})
+            serde_json::json!({"advanced":{"toolRankingModel":"$(rm -rf .)"}}),
         ] {
             assert!(merge_settings_value(patched.clone(), invalid).is_err());
         }

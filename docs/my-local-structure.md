@@ -13,16 +13,16 @@ excalidraw-cli convert my_local_structure.excalidraw --format png \
 
 ## Components and ownership
 
-| Component | Location | Responsibility |
-| --- | --- | --- |
-| Agents (ChatGPT, Codex, Claude Code, Hermes, Pi) | Remote or local | Choose tools, submit MCP calls and consume results. |
-| Base OAuth + Convex bridge | Hosted Base/Convex | Authenticate user/client, authorize and queue bridge operations, relay results. **No Moor configurations or tool settings in Base.** |
-| Moor | Native macOS app (blue) | Owns MCP configuration, profile mappings, per-server instructions, tool registry/search, permissions, credentials and auditing. |
-| CLI-to-MCP | Moor adapter (planned) | Expose approved CLI operations in the coding container as callable tools. |
-| API-to-MCP | Moor adapter (planned) | Expose configured local and third-party HTTP API operations as tools. |
-| MCP-to-MCP | Existing Moor dispatcher | Route permitted tool calls to local and remote MCP servers. |
-| Coding container | Docker (green) | Runs developer CLIs, approved host-gateway commands, local MCPs and local APIs. |
-| OpenAI tunnel + mac_local_coder | Independent backup path | Retain development/recovery access when Moor fails. |
+| Component                                        | Location                 | Responsibility                                                                                                                       |
+| ------------------------------------------------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Agents (ChatGPT, Codex, Claude Code, Hermes, Pi) | Remote or local          | Choose tools, submit MCP calls and consume results.                                                                                  |
+| Base OAuth + Convex bridge                       | Hosted Base/Convex       | Authenticate user/client, authorize and queue bridge operations, relay results. **No Moor configurations or tool settings in Base.** |
+| Moor                                             | Native macOS app (blue)  | Owns MCP configuration, profile mappings, per-server instructions, tool registry/search, permissions, credentials and auditing.      |
+| CLI-to-MCP                                       | Moor adapter (planned)   | Expose approved CLI operations in the coding container as callable tools.                                                            |
+| API-to-MCP                                       | Moor adapter (planned)   | Expose configured local and third-party HTTP API operations as tools.                                                                |
+| MCP-to-MCP                                       | Existing Moor dispatcher | Route permitted tool calls to local and remote MCP servers.                                                                          |
+| Coding container                                 | Docker (green)           | Runs developer CLIs, approved host-gateway commands, local MCPs and local APIs.                                                      |
+| OpenAI tunnel + mac_local_coder                  | Independent backup path  | Retain development/recovery access when Moor fails.                                                                                  |
 
 **Color convention:** Blue = native Mac app; each green rectangle = its own Docker container. Dotted boxes inside the coding container are **logical groups**, not individual containers.
 
@@ -31,8 +31,8 @@ excalidraw-cli convert my_local_structure.excalidraw --format png \
 1. An agent signs in through **Base OAuth** and calls Base's hosted MCP endpoint.
 2. Base identifies the user and OAuth client and authorizes bridge access; the paired connector uses **Moor-owned agent-to-profile configuration** to route the request. Unassigned clients fail closed.
 3. Moor maintains an **outbound Convex subscription**. It claims a queued MCP request and returns the correlated response to Convex. No inbound public Mac listener is required for this path.
-4. In **Curated listing** mode, the agent sees `moor_search_tools` and `moor_call_tool` (plus pinned tools). `moor_search_tools` searches permitted tools and returns descriptions, names, input schemas, risk labels and applicable per-server instructions. **Search does not execute a tool or register client-native tools dynamically.**
-5. The agent calls `moor_call_tool` with a returned name and arguments. The diagram's `execution_tool` means Moor's **internal dispatcher**, **not an additional public tool**.
+4. In **Curated listing** mode, the agent sees `moor_search_tools` and `moor_mcp_call_tool` (plus pinned tools). `moor_search_tools` searches permitted tools and returns descriptions, names, input schemas, risk labels and applicable per-server instructions. **Search does not execute a tool or register client-native tools dynamically.**
+5. The agent calls `moor_mcp_call_tool` with a returned name and arguments (`moor_call_tool` remains a callable legacy alias). The diagram's `execution_tool` means Moor's **internal dispatcher**, **not an additional public tool**.
 6. Moor resolves the profile and tool, applies enabled/disabled and risk policies, records audit context, then dispatches to one adapter:
    - **CLI-to-MCP:** Only approved CLI operations in the coding container, including controlled host-gateway commands.
    - **API-to-MCP:** Configured local (container-reachable) APIs or remote HTTPS APIs.
@@ -52,14 +52,15 @@ The **separate direct local Moor profile endpoint** uses a Moor-issued bearer to
 
 ## Implementation status
 
-| Area | State |
-| --- | --- |
-| Native Moor app; local/remote MCP management; stdio/`npx`; downstream OAuth | **Existing** |
-| Profiles, tool permissions, per-MCP instructions, `moor_search_tools`, `moor_call_tool`, keyword ranking | **Existing** |
-| Base OAuth → Convex → Moor outbound connector | **Implemented**; production multi-agent/profile E2E acceptance pending |
-| OpenAI tunnel → independent `mac_local_coder` backup | **Existing** |
-| Built-in CLI-to-MCP adapter | **Planned** |
-| Built-in API-to-MCP adapter | **Planned** |
-| Strict core-vs-adapter isolation enforced by OS/process sandbox | **Not implemented** |
+| Area                                                                                                                           | State                                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Native Moor app; local/remote MCP management; stdio/`npx`; downstream OAuth                                                    | **Existing**                                                                                                                                             |
+| Profiles, tool permissions, per-MCP instructions, `moor_search_tools`, `moor_mcp_call_tool` with legacy alias, keyword ranking | **Existing**                                                                                                                                             |
+| Base OAuth → Convex → Moor outbound connector                                                                                  | **Implemented**; production multi-agent/profile E2E acceptance pending                                                                                   |
+| OpenAI tunnel → independent `mac_local_coder` backup                                                                           | **Existing**                                                                                                                                             |
+| Jev-style OpenRouter ranker                                                                                                    | **Implemented (opt-in)**; configured in Moor Settings and stored using macOS Keychain; deterministic fallback                                            |
+| Built-in CLI-to-MCP adapter                                                                                                    | **Implemented in Moor**; requires a separately approved `execute_approved_cli` container executor and registered command approvals before live execution |
+| Built-in API-to-MCP adapter                                                                                                    | **Implemented in Moor** with owner-only REST configuration; dedicated UI editor not implemented                                                          |
+| Strict core-vs-adapter isolation enforced by OS/process sandbox                                                                | **Not implemented**                                                                                                                                      |
 
 See [Base connector](base-connector.md) for bridge setup and its verification status, and [Agent profiles](agent-profiles.md) for direct Moor MCP endpoints.

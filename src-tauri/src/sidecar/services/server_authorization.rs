@@ -345,7 +345,9 @@ impl ServerAuthorization {
     /// Adapter secrets use the existing platform credential store; references
     /// cannot read OAuth/client credentials or arbitrary Keychain entries.
     pub fn create_adapter_secret(&self, secret: &str) -> Result<String, String> {
-        if secret.is_empty() || secret.len() > 8192 { return Err("Invalid adapter credential".into()); }
+        if secret.is_empty() || secret.len() > 8192 {
+            return Err("Invalid adapter credential".into());
+        }
         let reference = format!("adapter:{}", uuid::Uuid::new_v4());
         self.store.set(&reference, secret)?;
         Ok(reference)
@@ -353,7 +355,9 @@ impl ServerAuthorization {
 
     pub fn adapter_secret(&self, reference: &str) -> Result<String, String> {
         Self::validate_adapter_ref(reference)?;
-        self.store.get(reference)?.ok_or("Adapter credential unavailable".into())
+        self.store
+            .get(reference)?
+            .ok_or("Adapter credential unavailable".into())
     }
 
     pub fn delete_adapter_secret(&self, reference: &str) -> Result<(), String> {
@@ -362,8 +366,11 @@ impl ServerAuthorization {
     }
 
     fn validate_adapter_ref(reference: &str) -> Result<(), String> {
-        let id = reference.strip_prefix("adapter:").ok_or("Invalid adapter credential reference")?;
-        uuid::Uuid::parse_str(id).map_err(|_| "Invalid adapter credential reference".to_string())?;
+        let id = reference
+            .strip_prefix("adapter:")
+            .ok_or("Invalid adapter credential reference")?;
+        uuid::Uuid::parse_str(id)
+            .map_err(|_| "Invalid adapter credential reference".to_string())?;
         Ok(())
     }
 

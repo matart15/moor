@@ -80,13 +80,16 @@ pub async fn search_for_profile(
         .collect();
     let result = if let Ok(exposure) = exposure.as_ref() {
         let callable_tools = exposure.callable_tools();
-        Some(search_catalog_with_ranking(
-            &callable_tools,
-            params,
-            &server_instructions,
-            profile_id,
-            db,
-        ).await)
+        Some(
+            search_catalog_with_ranking(
+                &callable_tools,
+                params,
+                &server_instructions,
+                profile_id,
+                db,
+            )
+            .await,
+        )
     } else {
         None
     };
@@ -182,6 +185,7 @@ fn relevance(entry: &ToolCatalogEntry, terms: &[String]) -> (usize, u32) {
 }
 
 /// The RPC cursor remains a decimal offset in one stable, profile-scoped ordering.
+#[cfg(test)]
 fn search_catalog(
     catalog: &[ToolCatalogEntry],
     params: &Value,
@@ -362,7 +366,9 @@ async fn search_catalog_with_ranking(
                 names
             } else {
                 let shortlist = &ranked[..ranked.len().min(RERANK_SHORTLIST)];
-                let ids = jev_ranker::rank(query, shortlist, &config).await.unwrap_or_default();
+                let ids = jev_ranker::rank(query, shortlist, &config)
+                    .await
+                    .unwrap_or_default();
                 let chosen = apply_ranked_ids(&ranked, &ids);
                 let names: Vec<_> = chosen
                     .iter()
@@ -500,8 +506,14 @@ mod tests {
         let (result, hits) = search_catalog(&catalog, &json!({}), &instructions);
         assert_eq!(hits, 2);
         let tools = result["tools"].as_array().expect("tools");
-        let allowed = tools.iter().find(|tool| tool["name"] == "alpha__search_pages").unwrap();
-        let other = tools.iter().find(|tool| tool["name"] == "alpha__search_notes").unwrap();
+        let allowed = tools
+            .iter()
+            .find(|tool| tool["name"] == "alpha__search_pages")
+            .unwrap();
+        let other = tools
+            .iter()
+            .find(|tool| tool["name"] == "alpha__search_notes")
+            .unwrap();
         assert_eq!(allowed["serverInstructions"], "Read only.");
         assert!(other.get("serverInstructions").is_none());
     }
@@ -513,14 +525,16 @@ mod tests {
         }});
         let catalog = vec![
             ToolCatalogEntry {
-                server_id: "notion-id".into(), server_name: "Notion".into(),
+                server_id: "notion-id".into(),
+                server_name: "Notion".into(),
                 exposed_name: "notion__search".into(),
                 input_schema: Some(schema.clone()),
                 risk_level: "safe".into(),
                 ..entry("search", Some("Find pages"))
             },
             ToolCatalogEntry {
-                server_id: "notion-id".into(), server_name: "Notion".into(),
+                server_id: "notion-id".into(),
+                server_name: "Notion".into(),
                 exposed_name: "notion__read".into(),
                 risk_level: "safe".into(),
                 ..entry("read", Some("Read pages"))
@@ -528,10 +542,10 @@ mod tests {
         ];
         // Registry/policy already excluded this unassigned, disabled tool.
         let ranked = deterministic_rank(&catalog, &json!({ "query": "notion" }));
-        let selected = apply_ranked_ids(&ranked, &[
-            "another_profile__destructive".into(),
-            "notion__read".into(),
-        ]);
+        let selected = apply_ranked_ids(
+            &ranked,
+            &["another_profile__destructive".into(), "notion__read".into()],
+        );
         let instructions = HashMap::from([("notion-id".into(), "Do not modify records.".into())]);
         let (result, hits) = catalog_response(&selected, &json!({"limit": 50}), &instructions);
         assert_eq!(hits, 2);
@@ -539,7 +553,10 @@ mod tests {
         assert_eq!(result["tools"][1]["name"], "notion__search");
         assert_eq!(result["tools"][1]["inputSchema"], schema);
         assert_eq!(result["tools"][0]["riskLevel"], "safe");
-        assert_eq!(result["tools"][0]["serverInstructions"], "Do not modify records.");
+        assert_eq!(
+            result["tools"][0]["serverInstructions"],
+            "Do not modify records."
+        );
         assert!(!result.to_string().contains("another_profile"));
     }
 
@@ -553,14 +570,16 @@ mod tests {
         // not the next response from a non-deterministic model.
         let preference = vec!["alpha__tool7".into(), "alpha__tool5".into()];
         let stored: Vec<String> = apply_ranked_ids(&ranked, &preference)
-            .iter().map(|entry| entry.exposed_name.clone()).collect();
+            .iter()
+            .map(|entry| entry.exposed_name.clone())
+            .collect();
         let frozen = apply_ranked_ids(&ranked, &stored);
         let mut seen = HashSet::new();
         for offset in (0..8).step_by(3) {
             let (page, _) = catalog_response(
                 &frozen,
                 &json!({"cursor": offset.to_string(), "limit": 3}),
-                &HashMap::new()
+                &HashMap::new(),
             );
             for tool in page["tools"].as_array().unwrap() {
                 assert!(seen.insert(tool["name"].as_str().unwrap().to_string()));
@@ -577,10 +596,22 @@ mod tests {
         let settings = crate::sidecar::services::settings::default_settings().advanced;
         let instructions = HashMap::new();
         let params = json!({ "query": "search" });
-        let key = snapshot_key(Some("profile-a"), &params, &ranked, &instructions, &settings);
+        let key = snapshot_key(
+            Some("profile-a"),
+            &params,
+            &ranked,
+            &instructions,
+            &settings,
+        );
         assert_ne!(
             key,
-            snapshot_key(Some("profile-b"), &params, &ranked, &instructions, &settings)
+            snapshot_key(
+                Some("profile-b"),
+                &params,
+                &ranked,
+                &instructions,
+                &settings
+            )
         );
         let changed = HashMap::from([("alpha-id".into(), "Private instructions".into())]);
         assert_ne!(
