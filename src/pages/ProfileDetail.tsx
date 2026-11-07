@@ -6,7 +6,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Server,
   FolderOpen,
@@ -34,7 +40,13 @@ import {
   suggestDefaultPins,
   summarizeExposure,
 } from "@/lib/tool-exposure";
-import type { ExposureMode, ProfileToolGroup, RiskLevel, RiskPolicy, ToolDetail } from "@moor/types";
+import type {
+  ExposureMode,
+  ProfileToolGroup,
+  RiskLevel,
+  RiskPolicy,
+  ToolDetail,
+} from "@moor/types";
 
 export function ProfileDetail() {
   const { t } = useTranslation();
@@ -262,9 +274,8 @@ function ToolGovernanceCard({
     setPinned([{ serverId: group.serverId, toolName }], pinned);
 
   const setServerTools = (group: ProfileToolGroup, enable: boolean) => {
-    const tools = groups.find((item) => item.serverId === group.serverId)?.tools ?? [];
     return setTools(
-      tools.map((tool) => ({ serverId: group.serverId, toolName: tool.toolName })),
+      group.tools.map((tool) => ({ serverId: group.serverId, toolName: tool.toolName })),
       enable,
       enable
         ? t("Enabled all tools in {name}", { name: group.serverName })
@@ -534,6 +545,7 @@ function ToolGovernanceCard({
               onToggleExpanded={() => toggleExpanded(group.serverId)}
               onToggleTool={(toolName, enabled) => void toggleTool(group, toolName, enabled)}
               onSetAllTools={(enable) => void setServerTools(group, enable)}
+              filtered={hasActiveFilter}
               onToggleSelected={(toolName) => toggleSelected(group.serverId, toolName)}
               onTogglePinned={(toolName, pinned) => void togglePinned(group, toolName, pinned)}
             />
@@ -561,6 +573,7 @@ function ToolGroupSection({
   onToggleExpanded,
   onToggleTool,
   onSetAllTools,
+  filtered,
   onToggleSelected,
   onTogglePinned,
 }: {
@@ -573,6 +586,7 @@ function ToolGroupSection({
   onToggleExpanded: () => void;
   onToggleTool: (toolName: string, enabled: boolean) => void;
   onSetAllTools: (enable: boolean) => void;
+  filtered: boolean;
   onToggleSelected: (toolName: string) => void;
   onTogglePinned: (toolName: string, pinned: boolean) => void;
 }) {
@@ -618,7 +632,7 @@ function ToolGroupSection({
           disabled={disabled || allEnabled}
           onClick={() => onSetAllTools(true)}
         >
-          {t("Enable all")}
+          {t(filtered ? "Enable filtered" : "Enable all")}
         </Button>
         <Button
           variant="ghost"
@@ -627,7 +641,7 @@ function ToolGroupSection({
           disabled={disabled || noneEnabled}
           onClick={() => onSetAllTools(false)}
         >
-          {t("Disable all")}
+          {t(filtered ? "Disable filtered" : "Disable all")}
         </Button>
       </div>
       {expanded && (

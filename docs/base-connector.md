@@ -40,6 +40,23 @@ Base must independently authorize each user + OAuth client to the correct profil
 
 **Verification (2026-11-07):** The recovery branch passed frontend and native macOS Rust CI tests. A new Apple Silicon Moor Dev bundle was built locally and installed at `~/Applications/Moor Dev.app`. After relaunch, Controller reported `moor_base_mcp` running with Auto-start enabled; a real read-only `project_list` call via Base development Convex → Moor Dev completed successfully. The exact running executable identity was not independently checked. **Still pending:** macOS logout/login and abnormal-exit recovery, network interruption and reconnect testing, OAuth renewal/revocation, production multi-agent profile authorization, and external offline alerting. The updated launch agent must be exercised after the next login; do not intentionally crash the app during unrelated work. Retain the existing OpenAI tunnel until production authorization is verified.
 
+## Tool Governance: read-only selection
+
+In **Profiles → [profile] → Tool Governance**, the risk selector filters tools by
+**All risk levels / Safe / Write / Destructive / Unknown**. Combine it with
+search, then use **Select filtered → Enable / Disable** or the per-server
+**Enable filtered / Disable filtered** buttons. Bulk actions in a filtered view
+must affect **only the visible matching tools**, not every tool on a server.
+
+The labels are **heuristics, not guarantees**. For example, Notion `fetch` and
+`search` can be labeled Write or Destructive based on their descriptions, while
+`duplicate-page` and `spawn-session` can be mislabeled Safe. Review the
+specific operations before changing permissions. The active Default profile
+and an OAuth-mapped ChatGPT profile are separate; changing one does not change
+the other. In curated mode, only pinned tools appear in ordinary `tools/list`,
+while other permitted tools remain discoverable. Disabling an operation also
+prevents calling it; merely unpinning does not.
+
 ## Stable local signing and macOS Keychain prompts
 
 Moor Dev currently uses macOS Keychain for the OAuth credentials shared with its
@@ -81,8 +98,9 @@ then `scripts/install-macos-dev.sh` (verify bundle identifier/signature where
 present, quit old Moor Dev, stage and replace `~/Applications/Moor Dev.app`,
 clear quarantine on that locally built bundle only, launch, health-check, and
 restore the old app if launch/health validation fails). It never changes
-`/Applications/Moor.app` or disables Gatekeeper system-wide. Moor Dev remains
-unsigned and is not Apple-notarized; only use the workflow with trusted source.
+`/Applications/Moor.app` or disables Gatekeeper system-wide. Moor Dev is
+signed with a local self-signed identity when configured (otherwise ad-hoc),
+not Apple Developer ID signed or notarized; only use trusted source.
 
 For **Mac Local Coder (Docker)**, the same NPS command must run via the existing
 Controller host gateway, not inside Linux. A Mac administrator must first
