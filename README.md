@@ -1,7 +1,8 @@
 > **Specdest fork changes (review when merging upstream):**
 >
 > 1. **Per-agent profiles:** Independent authenticated MCP endpoints, tool permissions, and profile tokens.
-> 2. **Automated management:** Local owner-only API token access for the Controller CLI, plus a separate Moor Dev app.
+> 2. **Per-server agent instructions:** Optional text on each MCP server, combined for enabled servers into the MCP `initialize` response for that profile. The agent client must honor MCP instructions; reconnect after edits.
+> 3. **Automated management:** Local owner-only API token access for the Controller CLI, plus a separate Moor Dev app.
 >    Remove either customization if upstream provides equivalent functionality.
 
 ---

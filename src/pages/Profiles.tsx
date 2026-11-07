@@ -71,7 +71,7 @@ export function Profiles() {
   };
 
   return (
-    <div className="space-y-8 animate-fade-in-up">
+    <div className="space-y-5 animate-fade-in-up">
       <PageHeader
         title={t("Profiles")}
         subtitle={t("Manage server groupings and tool visibility")}

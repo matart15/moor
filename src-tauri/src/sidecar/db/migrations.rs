@@ -21,6 +21,7 @@ pub fn run_migrations(db: &Database) -> Result<(), String> {
             headers TEXT,
             working_dir TEXT,
             auto_start INTEGER NOT NULL DEFAULT 0,
+            instructions TEXT NOT NULL DEFAULT '',
             sort_order INTEGER NOT NULL DEFAULT 0,
             status TEXT NOT NULL DEFAULT 'stopped' CHECK(status IN ('stopped', 'starting', 'running', 'error')),
             error_message TEXT,
@@ -84,6 +85,12 @@ pub fn run_migrations(db: &Database) -> Result<(), String> {
 
     ensure_column(db, "tool_discoveries", "exposed_name", "TEXT")?;
     ensure_column(db, "mcp_servers", "headers", "TEXT")?;
+    ensure_column(
+        db,
+        "mcp_servers",
+        "instructions",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
     ensure_column(
         db,
         "mcp_servers",

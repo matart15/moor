@@ -109,6 +109,7 @@ export interface EditForm {
   env: KeyValueEntries;
   headers: KeyValueEntries;
   workingDir: string;
+  instructions?: string;
 }
 
 export function serverToForm(server: ServerDetail): EditForm {
@@ -120,6 +121,7 @@ export function serverToForm(server: ServerDetail): EditForm {
     env: server.env ? Object.entries(server.env) : [],
     headers: server.headers ? Object.entries(server.headers) : [],
     workingDir: server.workingDir ?? "",
+    instructions: server.instructions ?? "",
   };
 }
 
@@ -135,7 +137,7 @@ export function validateEditForm(form: EditForm, connectionType: ConnectionType)
 }
 
 export function formToUpdates(form: EditForm, connectionType: ConnectionType): ServerUpdateInput {
-  const updates: ServerUpdateInput = { name: form.name.trim() };
+  const updates: ServerUpdateInput = { name: form.name.trim(), instructions: form.instructions?.trim() ?? "" };
   const env = entriesToRecordOrNull(form.env);
 
   if (connectionType === "stdio") {
@@ -175,6 +177,7 @@ export function hasChanges(form: EditForm, baseline: EditForm): boolean {
     form.command.trim() !== baseline.command.trim() ||
     form.url.trim() !== baseline.url.trim() ||
     form.workingDir.trim() !== baseline.workingDir.trim() ||
+    (form.instructions ?? "").trim() !== (baseline.instructions ?? "").trim() ||
     JSON.stringify(stableArgs(form.args)) !== JSON.stringify(stableArgs(baseline.args)) ||
     JSON.stringify(stableEntries(form.env)) !== JSON.stringify(stableEntries(baseline.env)) ||
     JSON.stringify(stableEntries(form.headers, (key) => key.trim().toLowerCase())) !==

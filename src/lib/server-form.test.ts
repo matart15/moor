@@ -86,6 +86,7 @@ describe("server form utilities", () => {
         env: [["TOKEN", "secret"]],
         headers: [],
         workingDir: " /tmp/moor ",
+        instructions: " Use read-only tools ",
       },
       "stdio",
     );
@@ -95,6 +96,7 @@ describe("server form utilities", () => {
       args: ["--stdio"],
       env: { TOKEN: "secret" },
       workingDir: "/tmp/moor",
+      instructions: "Use read-only tools",
     });
 
     const httpUpdates: ServerUpdateInput = formToUpdates(
@@ -114,6 +116,7 @@ describe("server form utilities", () => {
       url: "https://example.com/mcp",
       headers: { authorization: "Bearer token" },
       env: null,
+      instructions: "",
     });
   });
 });

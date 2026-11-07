@@ -39,6 +39,7 @@ pub async fn execute_import(
             headers: sc.headers.clone(),
             working_dir: sc.working_dir.clone(),
             auto_start: false,
+            instructions: None,
         })
         .collect();
 

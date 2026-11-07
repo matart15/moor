@@ -68,7 +68,7 @@ function ServerAvatar({ isRunning, isError }: { isRunning: boolean; isError: boo
   return (
     <div
       className={cn(
-        "h-10 w-10 rounded-xl flex items-center justify-center shrink-0 transition-colors duration-200",
+        "h-8 w-8 rounded-lg flex items-center justify-center shrink-0 transition-colors duration-200",
         isRunning
           ? "bg-success-muted/10 text-success-muted border border-success-muted/20"
           : isError
@@ -76,7 +76,7 @@ function ServerAvatar({ isRunning, isError }: { isRunning: boolean; isError: boo
             : "bg-surface-300 text-[var(--fg-35)] border border-[var(--fg-08)]",
       )}
     >
-      <Terminal className="h-[18px] w-[18px]" />
+      <Terminal className="h-4 w-4" />
     </div>
   );
 }
@@ -185,7 +185,7 @@ function ServerControls({
   const controlsDisabled = isBusy || isRemoving;
 
   return (
-    <div className="flex items-center gap-1 shrink-0 bg-surface-300/50 rounded-lg p-1">
+    <div className="flex items-center gap-0.5 shrink-0 rounded-lg">
       <LifecycleButton
         serverId={server.id}
         isRunning={server.status === "running"}
@@ -341,10 +341,10 @@ export function ServerCard({
         isStopping && "bg-gold/[0.02] border-gold/10",
       )}
     >
-      <CardContent className="p-4">
+      <CardContent className="px-3 py-2">
         <div>
           <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
               {dragHandle}
               <ServerAvatar isRunning={isRunning} isError={isError} />
               <ServerIdentity

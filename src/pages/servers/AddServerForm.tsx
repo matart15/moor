@@ -41,6 +41,7 @@ function createInitialForm() {
     env: [] as Array<[string, string]>,
     headers: [] as Array<[string, string]>,
     autoStart: false,
+    instructions: "",
   };
 }
 
@@ -54,6 +55,7 @@ interface AddServerFormProps {
     env?: Record<string, string>;
     headers?: Record<string, string>;
     autoStart?: boolean;
+    instructions?: string;
   }) => Promise<void>;
   onClose: () => void;
 }
@@ -96,6 +98,7 @@ export function AddServerForm({ onAdd, onClose }: AddServerFormProps) {
         name: form.name.trim(),
         connectionType: form.connectionType,
         autoStart: form.autoStart,
+        instructions: form.instructions.trim(),
         env,
       };
 
@@ -227,6 +230,11 @@ export function AddServerForm({ onAdd, onClose }: AddServerFormProps) {
             checked={form.autoStart}
             onCheckedChange={(v) => setForm((f) => ({ ...f, autoStart: v }))}
           />
+        </div>
+        <div className="space-y-1.5">
+          <Label>{t("Agent Instructions")}</Label>
+          <Textarea value={form.instructions} onChange={(e) => setForm((f) => ({ ...f, instructions: e.target.value }))} placeholder="Guidance for the agent when using this MCP server" rows={3} />
+          <p className="text-xs text-muted-foreground">Sent to agents through MCP initialize instructions on new connections.</p>
         </div>
         <div className="space-y-1.5">
           <Label>{t("Environment Variables")}</Label>

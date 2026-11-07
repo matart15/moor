@@ -123,6 +123,10 @@ export function ServerEditFields({ form, connectionType, onChange }: ServerEditF
         </>
       )}
       <div className="space-y-1.5">
+        <Label>{t("Agent Instructions")}</Label>
+        <Textarea value={form.instructions ?? ""} onChange={(e) => onChange({ ...form, instructions: e.target.value })} rows={3} placeholder="Guidance for this MCP server" />
+      </div>
+      <div className="space-y-1.5">
         <Label>{t("Environment Variables")}</Label>
         <KeyValueEditor
           entries={form.env}
@@ -362,6 +366,9 @@ export function ServerDetail() {
                 )}
               </div>
 
+              {server.instructions && (
+                <div><label className="font-headline text-xs text-[var(--fg-50)] mb-2 block">{t("Agent Instructions")}</label><p className="text-sm whitespace-pre-wrap">{server.instructions}</p></div>
+              )}
               {envEntries.length > 0 && (
                 <div>
                   <label className="font-headline text-xs text-[var(--fg-50)] mb-2 block">

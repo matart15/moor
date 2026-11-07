@@ -21,7 +21,7 @@ export function Header() {
   }, []);
 
   return (
-    <header className="h-14 border-b border-[var(--fg-08)] bg-surface-200/80 backdrop-blur-md flex items-center justify-between px-6 sticky top-0 z-40">
+    <header className="h-12 border-b border-[var(--fg-08)] bg-surface-200/80 backdrop-blur-md flex items-center justify-between px-4 sticky top-0 z-40">
       <div className="flex items-center gap-2">
         <span className="font-body text-sm text-[var(--fg-40)]">{t("Active Profile")}</span>
         <div className="relative" ref={ref}>

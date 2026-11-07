@@ -118,6 +118,7 @@ mod tests {
                     headers: None,
                     working_dir: None,
                     auto_start: false,
+                    instructions: None,
                 },
             )
             .expect("failed to insert server");

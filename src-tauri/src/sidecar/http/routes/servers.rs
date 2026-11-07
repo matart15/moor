@@ -111,6 +111,7 @@ struct CreateServerBody {
     headers: Option<std::collections::HashMap<String, String>>,
     working_dir: Option<String>,
     auto_start: Option<bool>,
+    instructions: Option<String>,
 }
 
 async fn create(
@@ -127,6 +128,7 @@ async fn create(
         headers: body.headers,
         working_dir: body.working_dir,
         auto_start: body.auto_start.unwrap_or(false),
+        instructions: body.instructions,
     };
     input.validate().map_err(AppError::validation)?;
 
@@ -292,6 +294,7 @@ mod tests {
                     headers: None,
                     working_dir: None,
                     auto_start: false,
+                    instructions: None,
                 },
             )
             .expect("failed to insert server");
@@ -329,6 +332,7 @@ mod tests {
                 headers: None,
                 working_dir: None,
                 auto_start: None,
+                instructions: None,
             }),
         )
         .await;

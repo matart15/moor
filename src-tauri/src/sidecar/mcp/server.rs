@@ -34,7 +34,7 @@ pub async fn handle_request_for_profile(
     profile_id: Option<&str>,
 ) -> serde_json::Value {
     match method {
-        "initialize" => handle_initialize(id),
+        "initialize" => handle_initialize(id, &state, profile_id),
         "tools/list" => handle_tools_list(id, state, profile_id).await,
         "tools/call" => handle_tools_call(id, params, state, agent_info, profile_id).await,
         "ping" => jsonrpc::make_response(id, serde_json::json!({})),
@@ -46,15 +46,39 @@ pub async fn handle_request_for_profile(
     }
 }
 
-fn handle_initialize(id: jsonrpc::Id) -> serde_json::Value {
-    jsonrpc::make_response(
-        id,
-        serde_json::json!({
-            "protocolVersion": "2024-11-05",
-            "capabilities": { "tools": { "listChanged": true } },
-            "serverInfo": { "name": "Moor", "version": env!("CARGO_PKG_VERSION") },
-        }),
-    )
+fn handle_initialize(
+    id: jsonrpc::Id,
+    state: &AppState,
+    profile_id: Option<&str>,
+) -> serde_json::Value {
+    let profile_repo = crate::sidecar::db::profile_repo::ProfileRepository::new(&state.db);
+    let selected_profile = match profile_id {
+        Some(profile_id) => Some(profile_id.to_string()),
+        None => profile_repo.find_active_id().ok().flatten(),
+    };
+    let instructions = selected_profile
+        .and_then(|profile_id| profile_repo.find_profile_servers(&profile_id).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|item| item.profile_server.enabled && !item.server.instructions.trim().is_empty())
+        .map(|item| {
+            format!(
+                "{} MCP server: {}",
+                item.server.name,
+                item.server.instructions.trim()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let mut result = serde_json::json!({
+        "protocolVersion": "2024-11-05",
+        "capabilities": { "tools": { "listChanged": true } },
+        "serverInfo": { "name": "Moor", "version": env!("CARGO_PKG_VERSION") },
+    });
+    if !instructions.is_empty() {
+        result["instructions"] = json!(instructions);
+    }
+    jsonrpc::make_response(id, result)
 }
 
 async fn handle_tools_list(
@@ -349,6 +373,7 @@ process.stdin.on("data", (chunk) => {
                     headers: None,
                     working_dir: None,
                     auto_start: false,
+                    instructions: None,
                 },
             )
             .expect("failed to insert server");

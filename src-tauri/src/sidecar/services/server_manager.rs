@@ -1119,6 +1119,8 @@ process.stdin.on("data", (chunk) => {{
                     headers: None,
                     working_dir: None,
                     auto_start,
+
+                    instructions: None,
                 },
             )
             .expect("failed to insert server");

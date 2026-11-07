@@ -8,6 +8,7 @@ export interface Server {
   connectionType: ConnectionType;
   status: ServerStatus;
   autoStart: boolean;
+  instructions?: string | null;
   command?: string | null;
   args?: string[] | null;
   url?: string | null;
@@ -26,6 +27,7 @@ export interface ServerRuntime {
   connectionType: ConnectionType;
   status: ServerStatus;
   autoStart: boolean;
+  instructions?: string | null;
 }
 
 export interface ServerDetail extends Server {
@@ -41,4 +43,5 @@ export interface ServerUpdateInput {
   headers?: Record<string, string> | null;
   workingDir?: string | null;
   autoStart?: boolean;
+  instructions?: string | null;
 }

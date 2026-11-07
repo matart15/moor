@@ -68,7 +68,7 @@ export function AuditLogs() {
   };
 
   return (
-    <div className="space-y-8 animate-fade-in-up">
+    <div className="space-y-5 animate-fade-in-up">
       <PageHeader
         title={t("Insights")}
         subtitle={t("Tool call health and governance signals")}

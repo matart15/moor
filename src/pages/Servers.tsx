@@ -1,7 +1,7 @@
 import { useServerHealth } from "@/hooks/useServerHealth";
 import type { ServerHealth } from "@moor/types";
 import { useTranslation } from "@/contexts/LocaleContext";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   closestCenter,
   DndContext,
@@ -19,13 +19,14 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
 import { ServerCard } from "@/components/servers/ServerCard";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { PageLoading } from "@/components/shared/PageLoading";
 import { useServers } from "@/hooks/useServers";
 import { useConfigImport } from "@/hooks/useConfigImport";
-import { FileJson, GripVertical, Plus, RefreshCw, ScanSearch } from "lucide-react";
+import { FileJson, GripVertical, Plus, RefreshCw, ScanSearch, Search } from "lucide-react";
 import { cn, getErrorMessage } from "@/lib/utils";
 import { AddServerForm } from "./servers/AddServerForm";
 import { ConfigImportPanel } from "./servers/ConfigImportPanel";
@@ -60,6 +61,7 @@ function SortableServerCard({
   onStart,
   onStop,
   onRemove,
+  canReorder,
 }: {
   server: Server;
   health?: ServerHealth;
@@ -67,6 +69,7 @@ function SortableServerCard({
   onStart: (id: string) => Promise<void>;
   onStop: (id: string) => Promise<void>;
   onRemove: (id: string) => Promise<void>;
+  canReorder: boolean;
 }) {
   const { t } = useTranslation();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -89,6 +92,7 @@ function SortableServerCard({
           <Button
             variant="ghost"
             size="icon"
+            disabled={!canReorder}
             className="shrink-0 cursor-grab text-[var(--fg-30)] hover:text-cursor-dark active:cursor-grabbing"
             title={t("Drag to reorder {name}", { name: server.name })}
             aria-label={t("Drag to reorder {name}", { name: server.name })}
@@ -121,6 +125,21 @@ export function Servers() {
     serverActions,
   } = useServers();
   const [showAdd, setShowAdd] = useState(false);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const filteredServers = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase();
+    return servers.filter((server) => {
+      if (statusFilter !== "all" && server.status !== statusFilter) return false;
+      return (
+        !query ||
+        [server.name, server.url, server.command, ...(server.args ?? [])].some((value) =>
+          value?.toLocaleLowerCase().includes(query),
+        )
+      );
+    });
+  }, [servers, search, statusFilter]);
+  const isFiltered = search.trim().length > 0 || statusFilter !== "all";
   const [showJsonImport, setShowJsonImport] = useState(false);
   const [orderError, setOrderError] = useState<string | null>(null);
   const importState = useConfigImport();
@@ -165,7 +184,7 @@ export function Servers() {
   );
 
   return (
-    <div className="space-y-6 animate-fade-in-up">
+    <div className="space-y-4 animate-fade-in-up">
       <PageHeader
         title={t("Servers")}
         subtitle={t("Manage and configure your MCP servers")}
@@ -202,6 +221,35 @@ export function Servers() {
         }
       />
 
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[200px] flex-1 max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--fg-40)] pointer-events-none" />
+          <Input
+            type="search"
+            aria-label={t("Search servers")}
+            placeholder={t("Search servers")}
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <select
+          aria-label={t("Filter by status")}
+          value={statusFilter}
+          onChange={(event) => setStatusFilter(event.target.value)}
+          className="h-9 rounded-lg border border-[var(--fg-10)] bg-transparent px-3 font-headline text-xs text-cursor-dark focus-visible:outline-2 focus-visible:outline-cursor-orange"
+        >
+          <option value="all">{t("All statuses")}</option>
+          <option value="running">{t("Running")}</option>
+          <option value="stopped">{t("Stopped")}</option>
+          <option value="error">{t("Error")}</option>
+          <option value="starting">{t("Starting")}</option>
+        </select>
+        <span className="text-xs text-[var(--fg-45)]" aria-live="polite">
+          {filteredServers.length} / {servers.length}
+        </span>
+      </div>
+
       {/* Import Panels */}
       <ConfigImportPanel
         state={importState}
@@ -237,15 +285,22 @@ export function Servers() {
               </p>
             </div>
           </button>
+        ) : filteredServers.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-[var(--fg-12)] p-6 text-center text-sm text-[var(--fg-50)]">
+            {t("No matching servers")}
+          </div>
         ) : (
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
             onDragEnd={(event) => void handleDragEnd(event)}
           >
-            <SortableContext items={getServerIds(servers)} strategy={verticalListSortingStrategy}>
-              <div className="space-y-2">
-                {servers.map((server) => (
+            <SortableContext
+              items={getServerIds(filteredServers)}
+              strategy={verticalListSortingStrategy}
+            >
+              <div className="space-y-1.5">
+                {filteredServers.map((server) => (
                   <SortableServerCard
                     key={server.id}
                     server={server}
@@ -258,6 +313,7 @@ export function Servers() {
                     onStart={startServer}
                     onStop={stopServer}
                     onRemove={removeServer}
+                    canReorder={!isFiltered}
                   />
                 ))}
               </div>

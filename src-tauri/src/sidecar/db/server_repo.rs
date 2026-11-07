@@ -10,6 +10,7 @@ pub struct Server {
     pub connection_type: String,
     pub status: String,
     pub auto_start: bool,
+    pub instructions: String,
     pub command: Option<String>,
     pub args: Option<serde_json::Value>,
     pub url: Option<String>,
@@ -34,6 +35,7 @@ pub struct ServerInsertInput {
     pub headers: Option<HashMap<String, String>>,
     pub working_dir: Option<String>,
     pub auto_start: bool,
+    pub instructions: Option<String>,
 }
 
 fn serialize_nullable_text<T: serde::Serialize>(
@@ -59,6 +61,7 @@ pub(crate) fn map_server(row: &rusqlite::Row<'_>) -> rusqlite::Result<Server> {
         connection_type: row.get("connection_type")?,
         status: row.get("status")?,
         auto_start: auto_start != 0,
+        instructions: row.get("instructions")?,
         command: row.get("command")?,
         args: args_str
             .as_deref()
@@ -184,8 +187,8 @@ impl<'a> ServerRepository<'a> {
                 let headers_json = serialize_nullable_text("headers", &input.headers)?;
 
                 conn.execute(
-                    "INSERT INTO mcp_servers (id, name, connection_type, command, args, url, env, headers, working_dir, auto_start, sort_order, status, created_at, updated_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'stopped', ?12, ?13)",
+                    "INSERT INTO mcp_servers (id, name, connection_type, command, args, url, env, headers, working_dir, auto_start, instructions, sort_order, status, created_at, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'stopped', ?13, ?14)",
                     rusqlite::params![
                         &id,
                         &input.name,
@@ -197,6 +200,7 @@ impl<'a> ServerRepository<'a> {
                         headers_json.as_deref(),
                         input.working_dir.as_deref(),
                         input.auto_start as i64,
+                        input.instructions.as_deref().unwrap_or(""),
                         next_sort_order,
                         &now,
                         &now,
@@ -241,8 +245,8 @@ impl<'a> ServerRepository<'a> {
         let env_json = serialize_nullable_text("env", &input.env)?;
         let headers_json = serialize_nullable_text("headers", &input.headers)?;
         self.db.run(
-            "INSERT INTO mcp_servers (id, name, connection_type, command, args, url, env, headers, working_dir, auto_start, sort_order, status, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'stopped', ?12, ?13)",
+            "INSERT INTO mcp_servers (id, name, connection_type, command, args, url, env, headers, working_dir, auto_start, instructions, sort_order, status, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'stopped', ?13, ?14)",
             &[
                 &id as &dyn rusqlite::types::ToSql,
                 &input.name,
@@ -254,6 +258,7 @@ impl<'a> ServerRepository<'a> {
                 &headers_json,
                 &input.working_dir,
                 &(input.auto_start as i64),
+                &input.instructions.as_deref().unwrap_or(""),
                 &sort_order,
                 &now,
                 &now,
@@ -348,6 +353,7 @@ mod tests {
             headers: None,
             working_dir: None,
             auto_start: false,
+            instructions: None,
         }
     }
 

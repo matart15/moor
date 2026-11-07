@@ -8,21 +8,21 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-surface-300 text-cursor-dark hover:text-error-warm rounded-xl px-4 py-2.5 border border-[var(--fg-08)] hover:border-[rgba(207,45,86,0.2)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.04)]",
-        destructive: "bg-error-warm text-surface-200 hover:bg-error-warm/90 rounded-xl px-4 py-2.5",
+          "bg-surface-300 text-cursor-dark hover:text-error-warm rounded-lg px-4 py-2.5 border border-[var(--fg-08)] hover:border-[rgba(207,45,86,0.2)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.04)]",
+        destructive: "bg-error-warm text-surface-200 hover:bg-error-warm/90 rounded-lg px-4 py-2.5",
         outline:
-          "border border-[var(--fg-10)] bg-transparent hover:bg-surface-300 rounded-xl px-4 py-2.5 hover:border-[var(--fg-15)]",
+          "border border-[var(--fg-10)] bg-transparent hover:bg-surface-300 rounded-lg px-4 py-2.5 hover:border-[var(--fg-15)]",
         secondary:
           "bg-surface-400 text-[var(--fg-60)] hover:text-error-warm rounded-full px-3 py-1 text-xs",
         ghost:
-          "text-[var(--fg-55)] hover:bg-[var(--fg-06)] hover:text-cursor-dark rounded-xl px-3 py-1.5",
+          "text-[var(--fg-55)] hover:bg-[var(--fg-06)] hover:text-cursor-dark rounded-lg px-3 py-1.5",
         link: "text-cursor-orange underline-offset-4 hover:underline",
       },
       size: {
-        default: "h-10",
-        sm: "h-9 text-xs px-3 py-1.5",
-        lg: "h-11 text-base px-5 py-2.5",
-        icon: "h-11 w-11",
+        default: "h-9",
+        sm: "h-8 text-xs px-3 py-1.5",
+        lg: "h-10 text-base px-5 py-2.5",
+        icon: "h-9 w-9",
       },
     },
     defaultVariants: { variant: "default", size: "default" },

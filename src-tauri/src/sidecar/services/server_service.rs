@@ -15,6 +15,7 @@ pub struct CreateServerInput {
     pub headers: Option<HashMap<String, String>>,
     pub working_dir: Option<String>,
     pub auto_start: bool,
+    pub instructions: Option<String>,
 }
 
 impl CreateServerInput {
@@ -76,6 +77,7 @@ pub struct UpdateServerInput {
     #[serde(default)]
     pub working_dir: UpdateField<String>,
     pub auto_start: Option<bool>,
+    pub instructions: Option<String>,
 }
 
 impl UpdateServerInput {
@@ -194,6 +196,7 @@ impl ServerService {
                     headers: i.headers.clone(),
                     working_dir: i.working_dir.clone(),
                     auto_start: i.auto_start,
+                    instructions: i.instructions.clone(),
                 })
             })
             .collect::<Result<_, _>>()?;
@@ -286,6 +289,11 @@ impl ServerService {
             }
             if let UpdateField::Set(value) = &body.working_dir {
                 set_clauses.push(format!("working_dir = ?{param_idx}"));
+                params.push(Box::new(value.clone()));
+                param_idx += 1;
+            }
+            if let Some(value) = &body.instructions {
+                set_clauses.push(format!("instructions = ?{param_idx}"));
                 params.push(Box::new(value.clone()));
                 param_idx += 1;
             }

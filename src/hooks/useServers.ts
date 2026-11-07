@@ -138,6 +138,7 @@ export function useServerActions(callbacks?: {
       env?: Record<string, string>;
       headers?: Record<string, string>;
       autoStart?: boolean;
+      instructions?: string;
     }) => {
       return apiPost<Server>(routes.servers.create(), config);
     },

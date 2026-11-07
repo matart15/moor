@@ -51,7 +51,7 @@ export function Dashboard() {
   const recentServers = servers.slice(0, 5);
 
   return (
-    <div className="space-y-8 animate-fade-in-up">
+    <div className="space-y-5 animate-fade-in-up">
       <PageHeader title={t("Dashboard")} subtitle={t("Monitor your MCP servers and activity")} />
 
       {/* Global MCP Endpoint */}

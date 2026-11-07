@@ -23,13 +23,13 @@ const navItems = [
 export function Sidebar() {
   const { t, text } = useTranslation();
   return (
-    <aside className="w-[220px] shrink-0 border-r border-[var(--fg-10)] bg-surface-300 flex flex-col">
-      <div className="px-5 py-4 flex items-center gap-2.5">
-        <div className="h-9 w-9 rounded-xl bg-cursor-dark flex items-center justify-center">
-          <MoorLogo className="h-7 w-7 text-surface-200" />
+    <aside className="w-[184px] shrink-0 border-r border-[var(--fg-10)] bg-surface-300 flex flex-col">
+      <div className="px-3 py-3 flex items-center gap-2.5">
+        <div className="h-8 w-8 rounded-xl bg-cursor-dark flex items-center justify-center">
+          <MoorLogo className="h-6 w-6 text-surface-200" />
         </div>
         <div className="-space-y-0.5">
-          <span className="font-headline text-lg font-semibold tracking-tight text-cursor-dark leading-tight block">
+          <span className="font-headline text-base font-semibold tracking-tight text-cursor-dark leading-tight block">
             Moor
           </span>
           <span className="font-mono text-[10px] text-[var(--fg-40)] tracking-wider uppercase leading-none">
@@ -45,7 +45,7 @@ export function Sidebar() {
             to={to}
             className={({ isActive }) =>
               cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-xl font-headline text-sm transition-all duration-200 relative group",
+                "flex items-center gap-3 px-2.5 py-1.5 rounded-lg font-headline text-sm transition-all duration-200 relative group",
                 isActive
                   ? "bg-surface-400 text-cursor-dark font-medium"
                   : "text-[var(--fg-55)] hover:bg-[var(--fg-06)] hover:text-cursor-dark",
@@ -75,7 +75,7 @@ export function Sidebar() {
           href="https://github.com/modelcontextprotocol"
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center gap-3 px-3 py-2.5 rounded-xl font-headline text-sm text-[var(--fg-45)] hover:bg-[var(--fg-06)] hover:text-cursor-dark transition-all duration-200"
+          className="flex items-center gap-3 px-2.5 py-1.5 rounded-lg font-headline text-sm text-[var(--fg-45)] hover:bg-[var(--fg-06)] hover:text-cursor-dark transition-all duration-200"
         >
           <HelpCircle className="h-4 w-4" />
           {t("Documentation")}
@@ -87,7 +87,7 @@ export function Sidebar() {
           to="/settings"
           className={({ isActive }) =>
             cn(
-              "flex items-center gap-3 px-3 py-2.5 rounded-xl font-headline text-sm transition-all duration-200 relative group",
+              "flex items-center gap-3 px-2.5 py-1.5 rounded-lg font-headline text-sm transition-all duration-200 relative group",
               isActive
                 ? "bg-surface-400 text-cursor-dark font-medium"
                 : "text-[var(--fg-45)] hover:bg-[var(--fg-06)] hover:text-cursor-dark",
@@ -109,7 +109,7 @@ export function Sidebar() {
         </NavLink>
       </div>
 
-      <div className="px-5 py-3 border-t border-[var(--fg-08)]">
+      <div className="px-3 py-2 border-t border-[var(--fg-08)]">
         <p className="font-mono text-[10px] text-[var(--fg-30)]">{`Moor v${__APP_VERSION__}`}</p>
       </div>
     </aside>
