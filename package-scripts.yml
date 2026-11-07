@@ -1,3 +1,4 @@
 scripts:
   local:
     installDev: bash scripts/build-macos-dev.sh && bash scripts/install-macos-dev.sh
+    diagnoseMoor: python3 scripts/diagnose-moor-dev.py

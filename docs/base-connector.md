@@ -55,5 +55,7 @@ For **Mac Local Coder (Docker)**, the same NPS command must run via the existing
 Controller host gateway, not inside Linux. A Mac administrator must first
 review and run Controller's `scripts/internal/install-moor-dev-nps-gateway-macos.sh`
 to register the Moor project and update the scoped gateway policy. The gateway
-allows only `local.installDev` for `moor-dev`, with sufficient timeout for the
-native build. This one-time host policy step is not performed by a repo pull.
+allows only `local.installDev` and the read-only `local.diagnoseMoor` for
+`moor-dev`, with sufficient timeout for the native build. Diagnostics report
+sanitized bridge connection/assignment counts and server log categories without
+exposing OAuth credentials, agent identifiers, or raw logs. This one-time host policy step is not performed by a repo pull.
