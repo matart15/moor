@@ -2,7 +2,20 @@
 
 Built into the existing Rust/Tauri process; no additional daemon or public listener.
 
-Configure via **Settings → Advanced → Base MCP Connector**. Enter the Base Convex deployment URL, connection secret, and enable the connection. Secret storage uses macOS Keychain, not SQLite, source control, or a Docker environment file.
+## Moor-managed OAuth pairing (new build; production acceptance pending)
+
+Moor Dev can now pair with Base using the existing `moor_base_mcp` OAuth authorization, without requiring `MOOR_CONNECTION_SECRET` or `MOOR_AGENT_PROFILES` in Base. Base needs the new generic bridge code deployed once.
+
+1. Authorize `moor_base_mcp` with the Base account used by the agent clients (requires the `mcp:write` scope).
+2. In **Settings → Advanced → Base MCP Connector**, enter the Base production Convex cloud URL, enable **Moor-managed OAuth pairing**, enable the connector, and restart Moor. A new random per-user connector secret is stored in macOS Keychain and registered through the existing Base OAuth grant.
+3. Each agent signs into Base through existing OAuth. The agent identity is forwarded to Moor; newly observed clients appear in connector settings. Assign the desired Moor profile there. Unassigned clients fail closed.
+4. Agent/profile/server assignments are changed only in Moor. Pairing renews every 30 minutes; Moor sends a heartbeat every 30 seconds, and Base stops forwarding remote tools after 90 seconds without one. The OAuth pairing lease expires after 90 minutes without renewal.
+
+For large tool catalogs (for example Notion plus Sentry), use the profile’s **Curated listing** mode if `tools/list` exceeds Convex’s 180 KB response limit. Curated mode provides discovery and delegated tool invocation without transferring every schema at once.
+
+The old manually configured secret remains available only in legacy mode for non-disruptive migration. Keep the OpenAI tunnel and existing production routing unchanged until native-build, OAuth, cross-agent isolation and live MCP E2E acceptance complete.
+
+**Legacy configuration:** In Settings → Advanced → Base MCP Connector, disable Moor-managed OAuth pairing, enter the Base Convex URL and shared connection secret, and enable the connector. The secret remains in Keychain.
 
 The connector uses the official Convex Rust SDK realtime subscription to `moorBridge:pending`. Each job must be atomically claimed before invoking `handle_request_for_profile`, which applies the existing Moor profile/tool restrictions. A claimed job never retries after a disconnect. It sends the result to `moorBridge:complete`.
 
@@ -21,8 +34,79 @@ Base must independently authorize each user + OAuth client to the correct profil
 3. **Diagnostics:** Authenticated `GET /api/bridge` returns `connection`, `lastConnectedAtMs`, `lastMessageAtMs`, `lastError` (sanitized category), `consecutiveFailures`, `retryAfterSeconds`, and `secretConfigured`. Settings → Advanced refreshes this status every 10 seconds while open, showing the last successful connection and any recurring failures. Repeated `Connection secret rejected by Convex` means the Keychain secret differs from the target deployment; it should be corrected, never logged.
 4. **MCP server failure:** Enable **Automatic Health Checks** in Settings → Advanced to detect unhealthy running servers. These checks warn after three failures; server restart is still manual to avoid unintentionally resetting active tool calls. OAuth refresh must be verified separately.
 5. **Request timeout / uncertain writes:** Base expires pending requests after 25 seconds. Once claimed, a tool may have executed even if its response was lost. Check state before attempting a write again; do **not** automatically replay it.
-6. **Mac powered off or application intentionally quit:** No local task can execute and this local-only app cannot issue an out-of-band alert. A separate cloud-side heartbeat and alert destination would be needed for notification when Moor itself is offline. This is **not yet implemented**.
+6. **Mac powered off or application intentionally quit:** No local task can execute and this local-only app cannot issue an out-of-band alert. The OAuth-paired connector now heartbeats to Base for routing availability, but no external alert destination is configured. Offline notification is **not yet implemented**.
 
 ### Release verification
 
 **Verification (2026-11-07):** The recovery branch passed frontend and native macOS Rust CI tests. A new Apple Silicon Moor Dev bundle was built locally and installed at `~/Applications/Moor Dev.app`. After relaunch, Controller reported `moor_base_mcp` running with Auto-start enabled; a real read-only `project_list` call via Base development Convex → Moor Dev completed successfully. The exact running executable identity was not independently checked. **Still pending:** macOS logout/login and abnormal-exit recovery, network interruption and reconnect testing, OAuth renewal/revocation, production multi-agent profile authorization, and external offline alerting. The updated launch agent must be exercised after the next login; do not intentionally crash the app during unrelated work. Retain the existing OpenAI tunnel until production authorization is verified.
+
+## Tool Governance: read-only selection
+
+In **Profiles → [profile] → Tool Governance**, the risk selector filters tools by
+**All risk levels / Safe / Write / Destructive / Unknown**. Combine it with
+search, then use **Select filtered → Enable / Disable** or the per-server
+**Enable filtered / Disable filtered** buttons. Bulk actions in a filtered view
+must affect **only the visible matching tools**, not every tool on a server.
+
+The labels are **heuristics, not guarantees**. For example, Notion `fetch` and
+`search` can be labeled Write or Destructive based on their descriptions, while
+`duplicate-page` and `spawn-session` can be mislabeled Safe. Review the
+specific operations before changing permissions. The active Default profile
+and an OAuth-mapped ChatGPT profile are separate; changing one does not change
+the other. In curated mode, only pinned tools appear in ordinary `tools/list`,
+while other permitted tools remain discoverable. Disabling an operation also
+prevents calling it; merely unpinning does not.
+
+## Stable local signing and macOS Keychain prompts
+
+Moor Dev currently uses macOS Keychain for the OAuth credentials shared with its
+MCP servers (service `com.snowautumn.moor`) and Base connector pairing. An
+ad-hoc signature changes on every rebuild, so Keychain may ask for the login
+password repeatedly, even if **Always Allow** was previously selected.
+Prompts are per protected Keychain item and authorization, not a fixed count
+per configured MCP server.
+
+For stable app identity across future *local* builds, create a **self-signed
+Code Signing** certificate once using macOS **Keychain Access → Certificate
+Assistant → Create a Certificate**:
+
+1. Name it exactly `Moor Dev Local Signing`, select **Self Signed Root** and
+   **Code Signing**, and create it in the login keychain. Keep the private key
+   on this Mac; do not export, commit, or share it.
+2. In Keychain Access, open that certificate's **Trust** settings. Set **Code
+   Signing** to **Always Trust** (not the entire system trust policy). macOS may
+   require your login password to approve this change.
+3. Verify it is available using `security find-identity -v -p codesigning`
+   (the exact name should be listed). Then use the existing approved
+   `nps local.installDev` workflow. The installer detects the identity and
+   signs the staged app with the same certificate on each build.
+4. The *first* signed launch may still prompt for access to existing Keychain
+   items. Confirm the expected Moor Dev prompt and choose **Always Allow**.
+   Subsequent builds with the unchanged certificate should retain that access.
+
+If the identity is missing, the installer retains the existing ad-hoc signing
+fallback and clearly warns that Keychain prompts may recur. This certificate
+is for local development only, **not** Apple Developer ID signing or notarization.
+Do not disable Keychain protection, modify item access control lists in bulk,
+change Gatekeeper globally, or migrate stored secrets to plaintext.
+
+## Repeatable macOS development installation
+
+From the **trusted macOS Moor checkout**, run `nps local.installDev`. This uses
+`scripts/build-macos-dev.sh` (dependency install, Rust checks, native Tauri build)
+then `scripts/install-macos-dev.sh` (verify bundle identifier/signature where
+present, quit old Moor Dev, stage and replace `~/Applications/Moor Dev.app`,
+clear quarantine on that locally built bundle only, launch, health-check, and
+restore the old app if launch/health validation fails). It never changes
+`/Applications/Moor.app` or disables Gatekeeper system-wide. Moor Dev is
+signed with a local self-signed identity when configured (otherwise ad-hoc),
+not Apple Developer ID signed or notarized; only use trusted source.
+
+For **Mac Local Coder (Docker)**, the same NPS command must run via the existing
+Controller host gateway, not inside Linux. A Mac administrator must first
+review and run Controller's `scripts/internal/install-moor-dev-nps-gateway-macos.sh`
+to register the Moor project and update the scoped gateway policy. The gateway
+allows only `local.installDev` and the read-only `local.diagnoseMoor` for
+`moor-dev`, with sufficient timeout for the native build. Diagnostics report
+sanitized bridge connection/assignment counts and server log categories without
+exposing OAuth credentials, agent identifiers, or raw logs. This one-time host policy step is not performed by a repo pull.

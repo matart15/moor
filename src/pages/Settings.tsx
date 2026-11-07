@@ -7,6 +7,7 @@ import { buildApiHeaders, getApiRuntime } from "@/lib/api/runtime";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ErrorBanner } from "@/components/shared/ErrorBanner";
 import { useSettings } from "@/hooks/useSettings";
+import { useProfiles } from "@/hooks/useProfiles";
 import { useLockedMutation } from "@/hooks/useLockedMutation";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -304,6 +305,7 @@ function AdvancedSection({
 }) {
   const { t } = useTranslation();
   const { settings, updateSettings } = useSettings();
+  const { profiles } = useProfiles();
   const [localRetention, setLocalRetention] = useState(String(settings.advanced.logRetentionDays));
   const [localPort, setLocalPort] = useState(String(settings.advanced.sidecarPort));
   const [tokenVisible, setTokenVisible] = useState(false);
@@ -315,6 +317,9 @@ function AdvancedSection({
   const [bridgeFailures, setBridgeFailures] = useState(0);
   const [secretConfigured, setSecretConfigured] = useState(false);
   const [bridgeSaving, setBridgeSaving] = useState(false);
+  const [observedAgents, setObservedAgents] = useState<Array<{ userId: string; clientId: string }>>(
+    [],
+  );
   useEffect(() => {
     setBridgeUrl(settings.bridge.deploymentUrl);
   }, [settings.bridge.deploymentUrl]);
@@ -331,12 +336,14 @@ function AdvancedSection({
       lastConnectedAtMs: number | null;
       lastError: string | null;
       consecutiveFailures: number;
+      observedAgents: Array<{ userId: string; clientId: string }>;
     };
     setBridgeStatus(result.connection);
     setSecretConfigured(result.secretConfigured);
     setBridgeError(result.lastError);
     setBridgeLastConnected(result.lastConnectedAtMs);
     setBridgeFailures(result.consecutiveFailures);
+    setObservedAgents(result.observedAgents ?? []);
   }, []);
   useEffect(() => {
     const refresh = () =>
@@ -479,17 +486,74 @@ function AdvancedSection({
             value={bridgeUrl}
             onChange={(e) => setBridgeUrl(e.target.value)}
           />
-          <Input
-            aria-label="Connection Secret"
-            type="password"
-            placeholder={
-              secretConfigured
-                ? "Secret saved in macOS Keychain"
-                : "Connection secret (32+ characters)"
-            }
-            value={bridgeSecret}
-            onChange={(e) => setBridgeSecret(e.target.value)}
-          />
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm">Moor-managed OAuth pairing</p>
+              <p className="text-xs text-[var(--fg-45)]">
+                Uses the authorized moor_base_mcp OAuth grant; no Base environment variables
+                required.
+              </p>
+            </div>
+            <Switch
+              checked={settings.bridge.paired}
+              onCheckedChange={(paired) =>
+                void updateSettings({ bridge: { paired } }).catch((err) =>
+                  onError(getErrorMessage(err, "Failed to change pairing mode")),
+                )
+              }
+            />
+          </div>
+          {!settings.bridge.paired && (
+            <Input
+              aria-label="Connection Secret"
+              type="password"
+              placeholder={
+                secretConfigured
+                  ? "Secret saved in macOS Keychain"
+                  : "Connection secret (32+ characters)"
+              }
+              value={bridgeSecret}
+              onChange={(e) => setBridgeSecret(e.target.value)}
+            />
+          )}
+          {settings.bridge.paired && (
+            <div className="space-y-2">
+              <p className="text-xs text-[var(--fg-45)]">
+                Agent identities appear after their first request to Base. Assign each client to a
+                Moor profile; unknown agents are denied.
+              </p>
+              {observedAgents.map(({ userId, clientId }) => {
+                const key = `${userId}:${clientId}`;
+                return (
+                  <div key={key} className="flex gap-2 items-center">
+                    <span className="text-xs break-all flex-1" title={key}>
+                      {clientId}
+                    </span>
+                    <select
+                      aria-label={`Moor profile for ${clientId}`}
+                      className="border rounded p-2 text-xs bg-transparent"
+                      value={settings.bridge.agentProfiles[key] ?? ""}
+                      onChange={(event) => {
+                        const next = { ...settings.bridge.agentProfiles };
+                        if (event.target.value) next[key] = event.target.value;
+                        else delete next[key];
+                        void updateSettings({ bridge: { agentProfiles: next } }).catch((err) =>
+                          onError(getErrorMessage(err, "Unable to assign agent profile")),
+                        );
+                      }}
+                    >
+                      <option value="">Denied</option>
+                      {profiles.map((profile) => (
+                        <option key={profile.id} value={profile.id}>
+                          {profile.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                );
+              })}
+            </div>
+          )}
           <div className="flex items-center justify-between gap-3">
             <span className="text-xs" role="status">
               Status: {bridgeStatus}
@@ -520,7 +584,7 @@ function AdvancedSection({
           )}
           <p className="text-xs text-[var(--fg-45)]">
             Connection status refreshes every 10 seconds. Restart Moor after changing the deployment
-            URL. Secret is never displayed again.
+            URL or pairing mode. Connection secrets are never displayed.
           </p>
         </CardContent>
       </Card>
