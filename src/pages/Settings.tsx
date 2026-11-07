@@ -317,6 +317,39 @@ function AdvancedSection({
   const [bridgeFailures, setBridgeFailures] = useState(0);
   const [secretConfigured, setSecretConfigured] = useState(false);
   const [bridgeSaving, setBridgeSaving] = useState(false);
+  const [rankingModel, setRankingModel] = useState(settings.advanced.toolRankingModel);
+  const [rankingRef, setRankingRef] = useState(settings.advanced.toolRankingCredentialRef);
+  const [rankingTimeout, setRankingTimeout] = useState(
+    String(settings.advanced.toolRankingTimeoutMs),
+  );
+  const [rankingSaving, setRankingSaving] = useState(false);
+  useEffect(() => {
+    setRankingModel(settings.advanced.toolRankingModel);
+    setRankingRef(settings.advanced.toolRankingCredentialRef);
+    setRankingTimeout(String(settings.advanced.toolRankingTimeoutMs));
+  }, [
+    settings.advanced.toolRankingModel,
+    settings.advanced.toolRankingCredentialRef,
+    settings.advanced.toolRankingTimeoutMs,
+  ]);
+  const saveRanking = async () => {
+    setRankingSaving(true);
+    onError(null);
+    try {
+      await updateSettings({
+        advanced: {
+          toolRankingProvider: "openrouter",
+          toolRankingModel: rankingModel.trim(),
+          toolRankingCredentialRef: rankingRef.trim(),
+          toolRankingTimeoutMs: Number(rankingTimeout),
+        },
+      });
+    } catch (error) {
+      onError(getErrorMessage(error, "Unable to update tool ranking"));
+    } finally {
+      setRankingSaving(false);
+    }
+  };
   const [observedAgents, setObservedAgents] = useState<Array<{ userId: string; clientId: string }>>(
     [],
   );
@@ -590,6 +623,58 @@ function AdvancedSection({
       </Card>
       <Card>
         <CardContent className="p-2 divide-y divide-[var(--fg-06)]">
+          <SettingRow
+            label="Jev-assisted Tool Ranking (OpenRouter)"
+            description="Optional. Sends the query and short descriptions of authorized tools to OpenRouter; disabled by default. No tool schemas or instructions are sent."
+          >
+            <Switch
+              checked={settings.advanced.toolRankingEnabled}
+              onCheckedChange={(v) =>
+                void updateSettings({ advanced: { toolRankingEnabled: v } }).catch((error) =>
+                  onError(getErrorMessage(error, "Unable to toggle tool ranking")),
+                )
+              }
+            />
+          </SettingRow>
+          <div className="px-4 py-3 space-y-2">
+            <p className="text-xs text-[var(--fg-45)]">
+              Provider: OpenRouter. The model must be available on your account. The credential
+              reference resolves only in the native Moor Keychain service; no key is stored in
+              settings. Missing or invalid credentials always use local ranking.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+              <Input
+                aria-label="OpenRouter model ID"
+                placeholder="OpenRouter model ID"
+                value={rankingModel}
+                onChange={(event) => setRankingModel(event.target.value)}
+              />
+              <Input
+                aria-label="Keychain credential reference"
+                placeholder="Keychain credential reference"
+                value={rankingRef}
+                onChange={(event) => setRankingRef(event.target.value)}
+              />
+              <Input
+                aria-label="Ranking timeout (milliseconds)"
+                type="number"
+                min={1000}
+                max={8000}
+                value={rankingTimeout}
+                onChange={(event) => setRankingTimeout(event.target.value)}
+              />
+            </div>
+            <div className="flex justify-end">
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={rankingSaving}
+                onClick={() => void saveRanking()}
+              >
+                {t("Apply")}
+              </Button>
+            </div>
+          </div>
           <HealthSettings onError={onError} />
           <SettingRow
             label={t("Log Retention")}

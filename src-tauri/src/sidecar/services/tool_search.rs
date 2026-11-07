@@ -9,7 +9,24 @@ use crate::sidecar::services::audit_recorder::{AuditRecorder, ToolCallRecord, To
 use crate::sidecar::services::server_manager::{ServerManager, ToolCallError};
 use crate::sidecar::services::tool_catalog::ToolCatalogEntry;
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet};
+use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, Instant};
+
+mod jev_ranker;
+
+// Only stable names are cached. The authorized catalog, schemas and instructions are
+// freshly resolved for every request; never cache tools across profile boundaries.
+struct RankedSnapshot {
+    names: Vec<String>,
+    created: Instant,
+}
+static RANKED: LazyLock<Mutex<HashMap<[u8; 32], RankedSnapshot>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+const SNAPSHOT_TTL: Duration = Duration::from_secs(300);
+const MAX_SNAPSHOTS: usize = 64;
+const RERANK_SHORTLIST: usize = 40;
 
 /// 策展模式下注入的检索元工具。名字只有单个下划线，与 `{slug}__{tool}` 不冲突。
 pub const SEARCH_TOOL_NAME: &str = "moor_search_tools";
@@ -61,10 +78,18 @@ pub async fn search_for_profile(
         .filter(|item| item.profile_server.enabled && !item.server.instructions.trim().is_empty())
         .map(|item| (item.server.id, item.server.instructions))
         .collect();
-    let result = exposure
-        .as_ref()
-        .ok()
-        .map(|exposure| search_catalog(&exposure.callable_tools(), params, &server_instructions));
+    let result = if let Ok(exposure) = exposure.as_ref() {
+        let callable_tools = exposure.callable_tools();
+        Some(search_catalog_with_ranking(
+            &callable_tools,
+            params,
+            &server_instructions,
+            profile_id,
+            db,
+        ).await)
+    } else {
+        None
+    };
     let recorded_result = result.as_ref().map(|(_, hits)| json!({ "hits": hits }));
     let error = exposure.as_ref().err().map(ToString::to_string);
     AuditRecorder::record(
@@ -136,27 +161,25 @@ fn relevance(entry: &ToolCatalogEntry, terms: &[String]) -> (usize, u32) {
     })
 }
 
-/// `cursor` is the offset in the ranked result set; `limit` is capped at 50.
+/// The RPC cursor remains a decimal offset in one stable, profile-scoped ordering.
 fn search_catalog(
     catalog: &[ToolCatalogEntry],
     params: &Value,
     server_instructions: &HashMap<String, String>,
 ) -> (Value, usize) {
+    let ranked = deterministic_rank(catalog, params);
+    catalog_response(&ranked, params, server_instructions)
+}
+
+fn deterministic_rank<'a>(
+    catalog: &'a [ToolCatalogEntry],
+    params: &Value,
+) -> Vec<&'a ToolCatalogEntry> {
     let terms = query_terms(params.get("query").and_then(Value::as_str).unwrap_or(""));
     let server_filter = params
         .get("server")
         .and_then(Value::as_str)
         .map(str::to_lowercase);
-    let limit = params
-        .get("limit")
-        .and_then(Value::as_u64)
-        .unwrap_or(DEFAULT_LIMIT as u64)
-        .clamp(1, MAX_SEARCH_LIMIT as u64) as usize;
-    let offset = params
-        .get("cursor")
-        .and_then(Value::as_str)
-        .and_then(|cursor| cursor.parse::<usize>().ok())
-        .unwrap_or(0);
 
     let mut ranked: Vec<_> = catalog
         .iter()
@@ -172,19 +195,38 @@ fn search_catalog(
         .filter(|(_, matched, _)| terms.is_empty() || *matched > 0)
         .collect();
 
-    // Keep strict results when they exist, but tolerate task-oriented prompts
-    // with extra words that no MCP tool uses in its title or description.
     if !terms.is_empty() && ranked.iter().any(|(_, matched, _)| *matched == terms.len()) {
         ranked.retain(|(_, matched, _)| *matched == terms.len());
     }
-    ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| b.2.cmp(&a.2)));
-    let hits = ranked.len();
+    ranked.sort_by(|a, b| {
+        b.1.cmp(&a.1)
+            .then_with(|| b.2.cmp(&a.2))
+            .then_with(|| a.0.exposed_name.cmp(&b.0.exposed_name))
+    });
+    ranked.into_iter().map(|(entry, _, _)| entry).collect()
+}
 
+fn catalog_response(
+    ranked: &[&ToolCatalogEntry],
+    params: &Value,
+    server_instructions: &HashMap<String, String>,
+) -> (Value, usize) {
+    let limit = params
+        .get("limit")
+        .and_then(Value::as_u64)
+        .unwrap_or(DEFAULT_LIMIT as u64)
+        .clamp(1, MAX_SEARCH_LIMIT as u64) as usize;
+    let offset = params
+        .get("cursor")
+        .and_then(Value::as_str)
+        .and_then(|cursor| cursor.parse::<usize>().ok())
+        .unwrap_or(0);
+    let hits = ranked.len();
     let tools: Vec<Value> = ranked
         .iter()
         .skip(offset)
         .take(limit)
-        .map(|(entry, _, _)| {
+        .map(|entry| {
             let mut tool = json!({
                 "name": entry.exposed_name,
                 "description": entry.description,
@@ -201,12 +243,135 @@ fn search_catalog(
             tool
         })
         .collect();
-
     let mut payload = json!({ "tools": tools });
-    if hits > offset + limit {
+    if hits > offset.saturating_add(limit) {
         payload["nextCursor"] = json!((offset + limit).to_string());
     }
     (payload, hits)
+}
+
+// The ranker can reorder, never create a tool or bypass deterministic candidate selection.
+fn apply_ranked_ids<'a>(
+    ranked: &[&'a ToolCatalogEntry],
+    preferred: &[String],
+) -> Vec<&'a ToolCatalogEntry> {
+    let by_name: HashMap<&str, &ToolCatalogEntry> = ranked
+        .iter()
+        .map(|entry| (entry.exposed_name.as_str(), *entry))
+        .collect();
+    let mut result = Vec::with_capacity(ranked.len());
+    let mut seen = HashSet::new();
+    for name in preferred {
+        if let Some(entry) = by_name.get(name.as_str()) {
+            if seen.insert(name.as_str()) {
+                result.push(*entry);
+            }
+        }
+    }
+    for entry in ranked {
+        if seen.insert(entry.exposed_name.as_str()) {
+            result.push(*entry);
+        }
+    }
+    result
+}
+
+// Include the selected profile, query, server filter, full *authorized* catalog state,
+// server instructions and ranker configuration. No cross-profile cached results.
+fn snapshot_key(
+    profile: Option<&str>,
+    params: &Value,
+    ranked: &[&ToolCatalogEntry],
+    instructions: &HashMap<String, String>,
+    config: &crate::sidecar::services::settings::AdvancedSettings,
+) -> [u8; 32] {
+    let mut digest = Sha256::new();
+    digest.update(
+        json!([
+            profile,
+            params.get("query"),
+            params.get("server"),
+            config.tool_ranking_provider,
+            config.tool_ranking_model,
+            config.tool_ranking_credential_ref,
+            config.tool_ranking_timeout_ms
+        ])
+        .to_string()
+        .as_bytes(),
+    );
+    for entry in ranked {
+        digest.update(
+            json!([
+                entry.exposed_name,
+                entry.server_id,
+                entry.server_name,
+                entry.tool_name,
+                entry.description,
+                entry.risk_level,
+                entry.input_schema,
+                instructions.get(&entry.server_id)
+            ])
+            .to_string()
+            .as_bytes(),
+        );
+    }
+    digest.finalize().into()
+}
+
+async fn search_catalog_with_ranking(
+    catalog: &[ToolCatalogEntry],
+    params: &Value,
+    instructions: &HashMap<String, String>,
+    profile_id: Option<&str>,
+    db: &Database,
+) -> (Value, usize) {
+    let mut ranked = deterministic_rank(catalog, params);
+    let query = params.get("query").and_then(Value::as_str).unwrap_or("");
+    let config = crate::sidecar::services::settings::get_settings(db)
+        .ok()
+        .map(|settings| settings.advanced);
+    if let Some(config) = config {
+        if config.tool_ranking_enabled && ranked.len() >= 2 && !query_terms(query).is_empty() {
+            let key = snapshot_key(profile_id, params, &ranked, instructions, &config);
+            let cached = {
+                let mut snapshots = RANKED.lock().unwrap_or_else(|err| err.into_inner());
+                snapshots.retain(|_, snap| snap.created.elapsed() < SNAPSHOT_TTL);
+                snapshots.get(&key).map(|snap| snap.names.clone())
+            };
+            let names = if let Some(names) = cached {
+                names
+            } else {
+                let shortlist = &ranked[..ranked.len().min(RERANK_SHORTLIST)];
+                let ids = jev_ranker::rank(query, shortlist, &config).await.unwrap_or_default();
+                let chosen = apply_ranked_ids(&ranked, &ids);
+                let names: Vec<_> = chosen
+                    .iter()
+                    .map(|entry| entry.exposed_name.clone())
+                    .collect();
+                let mut snapshots = RANKED.lock().unwrap_or_else(|err| err.into_inner());
+                snapshots.retain(|_, snap| snap.created.elapsed() < SNAPSHOT_TTL);
+                if snapshots.len() >= MAX_SNAPSHOTS {
+                    if let Some(oldest) = snapshots
+                        .iter()
+                        .min_by_key(|(_, snapshot)| snapshot.created)
+                        .map(|(key, _)| *key)
+                    {
+                        snapshots.remove(&oldest);
+                    }
+                }
+                snapshots.insert(
+                    key,
+                    RankedSnapshot {
+                        names: names.clone(),
+                        created: Instant::now(),
+                    },
+                );
+                names
+            };
+            ranked = apply_ranked_ids(&ranked, &names);
+        }
+    }
+    catalog_response(&ranked, params, instructions)
 }
 
 #[cfg(test)]
@@ -311,8 +476,94 @@ mod tests {
         let instructions = HashMap::from([("alpha-id".to_string(), " Read only. ".to_string())]);
         let (result, hits) = search_catalog(&catalog, &json!({}), &instructions);
         assert_eq!(hits, 2);
-        assert_eq!(result["tools"][0]["serverInstructions"], "Read only.");
-        assert!(result["tools"][1].get("serverInstructions").is_none());
+        let tools = result["tools"].as_array().expect("tools");
+        let allowed = tools.iter().find(|tool| tool["name"] == "alpha__search_pages").unwrap();
+        let other = tools.iter().find(|tool| tool["name"] == "alpha__search_notes").unwrap();
+        assert_eq!(allowed["serverInstructions"], "Read only.");
+        assert!(other.get("serverInstructions").is_none());
+    }
+
+    #[test]
+    fn advisory_ranking_can_only_reorder_authorized_tools_without_changing_schema() {
+        let schema = json!({"type": "object", "required": ["query"], "properties": {
+            "query": {"type": "string"}
+        }});
+        let catalog = vec![
+            ToolCatalogEntry {
+                server_id: "notion-id".into(), server_name: "Notion".into(),
+                exposed_name: "notion__search".into(),
+                input_schema: Some(schema.clone()),
+                risk_level: "safe".into(),
+                ..entry("search", Some("Find pages"))
+            },
+            ToolCatalogEntry {
+                server_id: "notion-id".into(), server_name: "Notion".into(),
+                exposed_name: "notion__read".into(),
+                risk_level: "safe".into(),
+                ..entry("read", Some("Read pages"))
+            },
+        ];
+        // Registry/policy already excluded this unassigned, disabled tool.
+        let ranked = deterministic_rank(&catalog, &json!({ "query": "notion" }));
+        let selected = apply_ranked_ids(&ranked, &[
+            "another_profile__destructive".into(),
+            "notion__read".into(),
+        ]);
+        let instructions = HashMap::from([("notion-id".into(), "Do not modify records.".into())]);
+        let (result, hits) = catalog_response(&selected, &json!({"limit": 50}), &instructions);
+        assert_eq!(hits, 2);
+        assert_eq!(result["tools"][0]["name"], "notion__read");
+        assert_eq!(result["tools"][1]["name"], "notion__search");
+        assert_eq!(result["tools"][1]["inputSchema"], schema);
+        assert_eq!(result["tools"][0]["riskLevel"], "safe");
+        assert_eq!(result["tools"][0]["serverInstructions"], "Do not modify records.");
+        assert!(!result.to_string().contains("another_profile"));
+    }
+
+    #[test]
+    fn stable_paginated_snapshot_does_not_duplicate_or_drop_tools() {
+        let catalog: Vec<_> = (0..8)
+            .map(|index| entry(&format!("tool{index}"), None))
+            .collect();
+        let ranked = deterministic_rank(&catalog, &json!({}));
+        // Mocked provider preference: later requests must use the stored names,
+        // not the next response from a non-deterministic model.
+        let preference = vec!["alpha__tool7".into(), "alpha__tool5".into()];
+        let stored: Vec<String> = apply_ranked_ids(&ranked, &preference)
+            .iter().map(|entry| entry.exposed_name.clone()).collect();
+        let frozen = apply_ranked_ids(&ranked, &stored);
+        let mut seen = HashSet::new();
+        for offset in (0..8).step_by(3) {
+            let (page, _) = catalog_response(
+                &frozen,
+                &json!({"cursor": offset.to_string(), "limit": 3}),
+                &HashMap::new()
+            );
+            for tool in page["tools"].as_array().unwrap() {
+                assert!(seen.insert(tool["name"].as_str().unwrap().to_string()));
+            }
+        }
+        assert_eq!(seen.len(), 8);
+        assert_eq!(frozen[0].exposed_name, "alpha__tool7");
+    }
+
+    #[test]
+    fn ranking_snapshot_keys_are_scoped_to_profile_and_catalog_content() {
+        let catalog = vec![entry("search", Some("Find pages"))];
+        let ranked = deterministic_rank(&catalog, &json!({ "query": "search" }));
+        let settings = crate::sidecar::services::settings::default_settings().advanced;
+        let instructions = HashMap::new();
+        let params = json!({ "query": "search" });
+        let key = snapshot_key(Some("profile-a"), &params, &ranked, &instructions, &settings);
+        assert_ne!(
+            key,
+            snapshot_key(Some("profile-b"), &params, &ranked, &instructions, &settings)
+        );
+        let changed = HashMap::from([("alpha-id".into(), "Private instructions".into())]);
+        assert_ne!(
+            key,
+            snapshot_key(Some("profile-a"), &params, &ranked, &changed, &settings)
+        );
     }
 
     #[test]
