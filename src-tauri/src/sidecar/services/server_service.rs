@@ -217,6 +217,10 @@ impl ServerService {
         id: &str,
         body: &UpdateServerInput,
     ) -> Result<Server, ServerServiceError> {
+        if crate::sidecar::db::adapter_repo::AdapterRepository::new(db).get(id)
+            .map_err(ServerServiceError::Internal)?.is_some() {
+            return Err(ServerServiceError::Validation("Use /api/adapters to edit virtual adapter definitions".into()));
+        }
         let authorization = server_manager.authorization();
         let lifecycle = authorization.lifecycle(id).await;
         let mut guard = lifecycle.lock().await;

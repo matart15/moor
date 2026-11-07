@@ -12,6 +12,8 @@ use session::StdioHttpConnector;
 pub use session::{McpConnector, McpSession};
 use status::ServerStatus;
 
+use crate::sidecar::db::adapter_repo::{AdapterKind, AdapterRepository};
+use crate::sidecar::services::adapter_execution;
 use crate::sidecar::db::profile_repo::ProfileRepository;
 use crate::sidecar::db::server_repo::{Server, ServerRepository};
 use crate::sidecar::db::tool_discovery_repo::{ToolDiscoveryRepository, ToolInsert};
@@ -213,6 +215,8 @@ impl ServerManager {
         let repo = ServerRepository::new(&self.db);
         let _ = repo.reset_running_statuses();
         let servers = repo.find_all().unwrap_or_default();
+        let adapters: HashSet<String> = AdapterRepository::new(&self.db)
+            .ids().unwrap_or_default().into_iter().collect();
 
         let mut map = self.slots.lock().await;
         map.clear();
@@ -221,7 +225,7 @@ impl ServerManager {
                 row.id.clone(),
                 ServerSlot {
                     name: row.name.clone(),
-                    status: ServerStatus::Stopped,
+                    status: if adapters.contains(&row.id) { ServerStatus::Running } else { ServerStatus::Stopped },
                     auto_start: row.auto_start,
                     start_token: 0,
                     start_deadline: None,
@@ -231,6 +235,19 @@ impl ServerManager {
                 },
             );
         }
+        drop(map);
+        for id in adapters { self.persist_server_status(&id, "running", None); }
+    }
+
+    /// Activated virtual adapters have no MCP session and are always callable
+    /// through the same profile catalog. They never spawn a native process.
+    pub async fn register_adapter(&self, id: &str) -> Result<(), String> {
+        let server = ServerRepository::new(&self.db).find_by_id(id)?
+            .ok_or("Adapter server not found")?;
+        self.add_server(&server).await;
+        let mut slots = self.slots.lock().await;
+        if let Some(slot) = slots.get_mut(id) { slot.status = ServerStatus::Running; }
+        Ok(())
     }
 
     pub async fn get_server(&self, id: &str) -> Option<ManagedServer> {
@@ -296,6 +313,9 @@ impl ServerManager {
     }
 
     pub async fn start_server(&self, id: &str) -> Result<(), RequestError> {
+        if AdapterRepository::new(&self.db).get(id).map_err(RequestError::from)?.is_some() {
+            return Err("Virtual adapter is managed through /api/adapters".into());
+        }
         let timeouts = self.get_timeout_settings();
         let config = self.get_stored_config(id);
         let (should_wait, start_token, start_deadline, start_timeout_ms, diagnostics) = {
@@ -476,6 +496,9 @@ impl ServerManager {
     }
 
     pub async fn stop_server(&self, id: &str) -> Result<(), String> {
+        if AdapterRepository::new(&self.db).get(id)?.is_some() {
+            return Err("Virtual adapters cannot be stopped; disable the profile tool instead".into());
+        }
         let old_session = {
             let mut slots = self.slots.lock().await;
             let Some(slot) = slots.get_mut(id) else {
@@ -579,19 +602,64 @@ impl ServerManager {
                                 "Server \"{server_name}\" is not running"
                             ))
                         };
-                        let session_arc = {
-                            let slots = self.slots.lock().await;
-                            let slot = slots.get(&server_id).ok_or_else(unavailable)?;
-                            slot.session.clone().ok_or_else(unavailable)?
-                        };
-
-                        let request_timeout_ms = self.get_timeout_settings().request_ms;
-                        let mut client = session_arc.lock().await;
-                        client.set_request_timeout_ms(request_timeout_ms);
-                        client
-                            .call_tool(&tool_name, args.clone())
-                            .await
-                            .map_err(classify_request_error)
+                        // Resolved profile, risk and tool availability before
+                        // selecting any provider. Adapter targets come ONLY
+                        // from administrator-owned stored definitions.
+                        let registered = AdapterRepository::new(&self.db)
+                            .get(&server_id).map_err(ToolCallError::Execution)?;
+                        if let Some(adapter) = registered {
+                            if adapter.definition.tool_name != tool_name { return Err(not_found()); }
+                            adapter_execution::validate_arguments(&adapter.definition.input_schema, &args)?;
+                            match &adapter.definition.adapter {
+                                AdapterKind::Api { credential_ref, .. } => {
+                                    let secret = credential_ref.as_deref().map(|reference|
+                                        self.authorization.adapter_secret(reference)
+                                            .map_err(|_| ToolCallError::Execution("API credential unavailable".into()))
+                                    ).transpose()?;
+                                    let timeout_ms = match &adapter.definition.adapter {
+                                        AdapterKind::Api { timeout_ms, .. } => *timeout_ms,
+                                        _ => unreachable!(),
+                                    };
+                                    tokio::time::timeout(Duration::from_millis(timeout_ms),
+                                        adapter_execution::execute_api(&adapter.definition, &args, secret.as_deref()))
+                                        .await.map_err(|_| ToolCallError::Timeout("API request timed out".into()))?
+                                }
+                                AdapterKind::Cli { bridge_server_id, bridge_tool_name, timeout_ms,
+                                    max_output_bytes, .. } => {
+                                    // An adapter cannot elevate the caller to a
+                                    // hidden/disabled or risk-blocked bridge tool.
+                                    let bridge_allowed = exposure.as_ref().is_some_and(|exposure| exposure.tools.iter().any(|visible|
+                                        visible.server_id == *bridge_server_id && visible.tool_name == *bridge_tool_name
+                                        && matches!(visible.access, ToolAccess::Callable)));
+                                    if !bridge_allowed || bridge_server_id == &server_id {
+                                        return Err(ToolCallError::InvalidTool("Approved CLI bridge is not enabled for this profile".into()));
+                                    }
+                                    let bridge_args = adapter_execution::cli_bridge_arguments(&adapter.definition, &args)?;
+                                    let session_arc = {
+                                        let slots = self.slots.lock().await;
+                                        let slot = slots.get(bridge_server_id).ok_or_else(unavailable)?;
+                                        slot.session.clone().ok_or_else(unavailable)?
+                                    };
+                                    let mut client = session_arc.lock().await;
+                                    client.set_request_timeout_ms((*timeout_ms).min(self.get_timeout_settings().request_ms as u64) as u32);
+                                    let result = tokio::time::timeout(Duration::from_millis(*timeout_ms),
+                                        client.call_tool(bridge_tool_name, bridge_args)).await
+                                        .map_err(|_| ToolCallError::Timeout("CLI request timed out".into()))?
+                                        .map_err(classify_request_error)?;
+                                    adapter_execution::check_cli_output(result, *max_output_bytes)
+                                }
+                            }
+                        } else {
+                            let session_arc = {
+                                let slots = self.slots.lock().await;
+                                let slot = slots.get(&server_id).ok_or_else(unavailable)?;
+                                slot.session.clone().ok_or_else(unavailable)?
+                            };
+                            let request_timeout_ms = self.get_timeout_settings().request_ms;
+                            let mut client = session_arc.lock().await;
+                            client.set_request_timeout_ms(request_timeout_ms);
+                            client.call_tool(&tool_name, args.clone()).await.map_err(classify_request_error)
+                        }
                     }
                     .await
                 }
@@ -606,19 +674,38 @@ impl ServerManager {
                 ToolAccess::ToolDisabled | ToolAccess::ServerDisabled => Err(not_found()),
             },
         };
-        let error = result.as_ref().err().map(ToString::to_string);
         let refusal = match &result {
             Err(ToolCallError::PolicyDenied { .. }) => Some("policy_risk"),
             _ => None,
         };
+        // Adapter parameters, error messages and output may contain arbitrary
+        // secrets. Audit only field names and outcome/error category; keep
+        // original MCP session audit behavior unchanged.
+        let is_adapter = owner.is_some_and(|tool| AdapterRepository::new(&self.db)
+            .get(&tool.server_id).ok().flatten().is_some());
+        let error = result.as_ref().err().map(|error| {
+            if !is_adapter { return error.to_string(); }
+            match error {
+                ToolCallError::InvalidTool(_) => "invalid_arguments",
+                ToolCallError::PolicyDenied { .. } => "policy_denied",
+                ToolCallError::ServerUnavailable(_) => "server_unavailable",
+                ToolCallError::Timeout(_) => "timeout",
+                ToolCallError::Downstream { .. } => "downstream_error",
+                ToolCallError::Execution(_) => "adapter_execution_error",
+            }.to_string()
+        });
+        let sanitized_arguments = is_adapter.then(|| serde_json::json!({
+            "providedFields": args.as_object().map(|fields| fields.keys().collect::<Vec<_>>()).unwrap_or_default()
+        }));
+        let sanitized_result = is_adapter.then(|| serde_json::json!({"status": "success"}));
         AuditRecorder::record(
             &self.db,
             ToolCallRecord {
                 profile_id,
                 server_id: owner.map(|tool| tool.server_id.as_str()),
                 tool_name: exposed_name,
-                arguments: &args,
-                result: result.as_ref().ok(),
+                arguments: sanitized_arguments.as_ref().unwrap_or(&args),
+                result: if is_adapter { result.as_ref().ok().and(sanitized_result.as_ref()) } else { result.as_ref().ok() },
                 error: error.as_deref(),
                 duration_ms: if owner.is_some() {
                     start_time.elapsed().as_millis() as i64
@@ -677,7 +764,29 @@ impl ServerManager {
             ToolCallError::Execution("Unable to read tool exposure".into())
         })?;
         let callable_ids = self.get_callable_server_ids().await;
-        Ok(loaded.resolve(Some(&callable_ids)))
+        let mut exposure = loaded.resolve(Some(&callable_ids));
+        // A CLI facade must never be discoverable in a profile whose
+        // underlying approved executor is denied, blocked or stopped.
+        let callable_bridge_tools: HashSet<(String, String)> = exposure.tools.iter()
+            .filter(|tool| matches!(tool.access, ToolAccess::Callable))
+            .map(|tool| (tool.server_id.clone(), tool.tool_name.clone()))
+            .collect();
+        let adapters = AdapterRepository::new(&self.db).list()
+            .map_err(|_| ToolCallError::Execution("Unable to read adapter configuration".into()))?;
+        for adapter in adapters {
+            if let AdapterKind::Cli { bridge_server_id, bridge_tool_name, .. } = &adapter.definition.adapter {
+                if !callable_bridge_tools.contains(&(bridge_server_id.clone(), bridge_tool_name.clone())) {
+                    if let Some(tool) = exposure.tools.iter_mut().find(|tool|
+                        tool.server_id == adapter.id && tool.tool_name == adapter.definition.tool_name) {
+                        if matches!(tool.access, ToolAccess::Callable) {
+                            tool.access = ToolAccess::ServerUnavailable;
+                            tool.listed = false;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(exposure)
     }
 
     pub async fn get_tool_details(

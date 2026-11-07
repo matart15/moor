@@ -1,3 +1,4 @@
+pub mod adapters;
 pub mod bridge;
 pub mod events;
 pub mod health;
