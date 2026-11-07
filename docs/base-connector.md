@@ -40,6 +40,39 @@ Base must independently authorize each user + OAuth client to the correct profil
 
 **Verification (2026-11-07):** The recovery branch passed frontend and native macOS Rust CI tests. A new Apple Silicon Moor Dev bundle was built locally and installed at `~/Applications/Moor Dev.app`. After relaunch, Controller reported `moor_base_mcp` running with Auto-start enabled; a real read-only `project_list` call via Base development Convex → Moor Dev completed successfully. The exact running executable identity was not independently checked. **Still pending:** macOS logout/login and abnormal-exit recovery, network interruption and reconnect testing, OAuth renewal/revocation, production multi-agent profile authorization, and external offline alerting. The updated launch agent must be exercised after the next login; do not intentionally crash the app during unrelated work. Retain the existing OpenAI tunnel until production authorization is verified.
 
+## Stable local signing and macOS Keychain prompts
+
+Moor Dev currently uses macOS Keychain for the OAuth credentials shared with its
+MCP servers (service `com.snowautumn.moor`) and Base connector pairing. An
+ad-hoc signature changes on every rebuild, so Keychain may ask for the login
+password repeatedly, even if **Always Allow** was previously selected.
+Prompts are per protected Keychain item and authorization, not a fixed count
+per configured MCP server.
+
+For stable app identity across future *local* builds, create a **self-signed
+Code Signing** certificate once using macOS **Keychain Access → Certificate
+Assistant → Create a Certificate**:
+
+1. Name it exactly `Moor Dev Local Signing`, select **Self Signed Root** and
+   **Code Signing**, and create it in the login keychain. Keep the private key
+   on this Mac; do not export, commit, or share it.
+2. In Keychain Access, open that certificate's **Trust** settings. Set **Code
+   Signing** to **Always Trust** (not the entire system trust policy). macOS may
+   require your login password to approve this change.
+3. Verify it is available using `security find-identity -v -p codesigning`
+   (the exact name should be listed). Then use the existing approved
+   `nps local.installDev` workflow. The installer detects the identity and
+   signs the staged app with the same certificate on each build.
+4. The *first* signed launch may still prompt for access to existing Keychain
+   items. Confirm the expected Moor Dev prompt and choose **Always Allow**.
+   Subsequent builds with the unchanged certificate should retain that access.
+
+If the identity is missing, the installer retains the existing ad-hoc signing
+fallback and clearly warns that Keychain prompts may recur. This certificate
+is for local development only, **not** Apple Developer ID signing or notarization.
+Do not disable Keychain protection, modify item access control lists in bulk,
+change Gatekeeper globally, or migrate stored secrets to plaintext.
+
 ## Repeatable macOS development installation
 
 From the **trusted macOS Moor checkout**, run `nps local.installDev`. This uses

@@ -10,8 +10,20 @@ EXPECTED_ID='com.specdest.moor-dev'
 [[ -f "$SOURCE/Contents/MacOS/moor" ]] || { echo 'Moor Dev executable missing.' >&2; exit 1; }
 actual_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$SOURCE/Contents/Info.plist")"
 [[ "$actual_id" == "$EXPECTED_ID" ]] || { echo 'Unexpected bundle ID; refusing installation.' >&2; exit 1; }
-# A Tauri development build may contain an incomplete ad-hoc signature.
-# Sign the staged bundle below; no Apple Developer ID or notarization is claimed.
+# Use a persistent, locally created signing identity when available. Ad-hoc
+# signatures change after rebuilds and can cause repeated macOS Keychain prompts.
+# Never create, export, or change trust for a signing key automatically.
+LOCAL_SIGNING_IDENTITY='Moor Dev Local Signing'
+SIGNING_IDENTITY='-'
+IDENTITIES="$(/usr/bin/security find-identity -v -p codesigning 2>/dev/null || true)"
+if [[ "$IDENTITIES" == *"\"$LOCAL_SIGNING_IDENTITY\""* ]]; then
+  SIGNING_IDENTITY="$LOCAL_SIGNING_IDENTITY"
+  echo 'Using persistent Moor Dev local signing identity.'
+else
+  echo 'No Moor Dev Local Signing identity found; using ad-hoc signing.' >&2
+  echo 'Ad-hoc signing can trigger repeated Keychain prompts after each rebuild.' >&2
+  echo 'See docs/base-connector.md for one-time local signing setup.' >&2
+fi
 mkdir -p "$HOME/Applications"
 STAGE="$(mktemp -d "$HOME/Applications/.moor-dev-install.XXXXXX")"
 BACKUP=""
@@ -19,7 +31,7 @@ cleanup() { rm -rf "$STAGE"; }
 trap cleanup EXIT
 /usr/bin/ditto "$SOURCE" "$STAGE/Moor Dev.app"
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$STAGE/Moor Dev.app/Contents/Info.plist")" == "$EXPECTED_ID" ]] || exit 1
-/usr/bin/codesign --force --deep --sign - "$STAGE/Moor Dev.app" || { echo 'Local ad-hoc signing failed.' >&2; exit 1; }
+/usr/bin/codesign --force --deep --sign "$SIGNING_IDENTITY" "$STAGE/Moor Dev.app" || { echo 'Moor Dev signing failed.' >&2; exit 1; }
 /usr/bin/codesign --verify --deep --strict "$STAGE/Moor Dev.app" || { echo 'Staged app signature verification failed.' >&2; exit 1; }
 # Local, source-built development bundle only. Never disable Gatekeeper globally.
 /usr/bin/xattr -dr com.apple.quarantine "$STAGE/Moor Dev.app" 2>/dev/null || true
