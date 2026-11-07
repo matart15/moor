@@ -99,9 +99,29 @@ fn query_terms(query: &str) -> Vec<String> {
         .filter(|term| {
             !matches!(
                 term.as_str(),
-                "a" | "an" | "the" | "my" | "me" | "i" | "please" | "can" | "you"
-                    | "for" | "to" | "in" | "on" | "of" | "and" | "or" | "with"
-                    | "about" | "using" | "use" | "do" | "does" | "what" | "is"
+                "a" | "an"
+                    | "the"
+                    | "my"
+                    | "me"
+                    | "i"
+                    | "please"
+                    | "can"
+                    | "you"
+                    | "for"
+                    | "to"
+                    | "in"
+                    | "on"
+                    | "of"
+                    | "and"
+                    | "or"
+                    | "with"
+                    | "about"
+                    | "using"
+                    | "use"
+                    | "do"
+                    | "does"
+                    | "what"
+                    | "is"
             )
         })
         .collect()
@@ -232,8 +252,11 @@ mod tests {
             entry("delete_repo", None),
         ];
 
-        let (payload, hits) =
-            search_catalog(&catalog, &json!({ "query": "issues repo" }), &HashMap::new());
+        let (payload, hits) = search_catalog(
+            &catalog,
+            &json!({ "query": "issues repo" }),
+            &HashMap::new(),
+        );
         assert_eq!(hits, 1);
         assert_eq!(payload["tools"][0]["name"], "alpha__search_issues");
     }

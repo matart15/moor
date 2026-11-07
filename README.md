@@ -150,6 +150,10 @@ If a stdio server starts through `npx`, `pnpm dlx`, or a package manager that do
 
 Preinstall frequently used servers and use absolute command paths to reduce startup delays. To start them when Moor launches, enable **Auto-start** on each server and **Auto-start Servers on Launch** in Settings; only servers enabled in the active Profile are started.
 
+## Specdest Mac architecture
+
+See [Mac-local MCP architecture](docs/my-local-structure.md) for the editable Excalidraw diagram, rendered preview, ownership boundaries, request flow and implementation status.
+
 ## Features
 
 ### MCP Gateway Aggregation
